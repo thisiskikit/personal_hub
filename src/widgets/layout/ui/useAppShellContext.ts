@@ -4,6 +4,7 @@ import type { TimelineFilter, TimelineItem, TimelineType } from '@/entities/time
 import { useOutletContext } from 'react-router-dom'
 import type { ActiveMenu } from '@/shared/types/navigation'
 import type { Density, RightPanelTab, UiQueryState } from '@/shared/types/ui-state'
+import type { AssistantSaveMode, PromptProfile } from '@/shared/types/ai'
 
 export type InboxStatus = 'draft' | 'needs_review' | 'scheduled' | 'saved' | 'dismissed'
 
@@ -31,8 +32,6 @@ export interface NotificationItem {
     itemId?: number
   }
 }
-
-export type AssistantSaveMode = 'inbox' | 'event' | 'memo'
 
 export interface AssistantPendingAction {
   id: string
@@ -77,9 +76,9 @@ export interface AppShellContextValue {
   isLoading: boolean
   hasError: boolean
   onAssignCategory: (itemId: number, category: string) => void
-  itemActionPrompt: string
-  setItemActionPrompt: (prompt: string) => void
   onToggleRule: (ruleId: number, active: boolean) => void
+  promptProfiles: PromptProfile[]
+  updatePromptProfile: (key: string, promptText: string) => Promise<void>
   assistantMessages: AssistantMessage[]
   sendAssistantMessage: (message: string) => void
   confirmAssistantSave: (actionId: string, mode: AssistantSaveMode) => void

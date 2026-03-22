@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   Bot,
   Calendar as CalendarIcon,
@@ -10,6 +12,8 @@ import {
 } from 'lucide-react'
 import type { TimelineItem } from '@/entities/timeline/model/types'
 import { AiSuggestionsCard } from '@/features/assistant/ui/AiSuggestionsCard'
+import { dataProvider, queryKeys } from '@/shared/api'
+import type { PromptProfile } from '@/shared/types/ai'
 import type { RightPanelTab } from '@/shared/types/ui-state'
 import { ChatBubble, DetailRow, RightTab, StatePanel, StatusBadge } from '@/shared/ui'
 
@@ -18,8 +22,8 @@ interface RightPanelProps {
   rightPanelTab: RightPanelTab
   onTabChange: (tab: RightPanelTab) => void
   onAssignCategory: (itemId: number, category: string) => void
-  itemActionPrompt: string
-  onItemActionPromptChange: (prompt: string) => void
+  promptProfiles: PromptProfile[]
+  onPromptProfileChange: (key: string, promptText: string) => Promise<void>
 }
 
 export const RightPanel = ({
@@ -27,10 +31,19 @@ export const RightPanel = ({
   rightPanelTab,
   onTabChange,
   onAssignCategory,
-  itemActionPrompt,
-  onItemActionPromptChange,
-}: RightPanelProps) => (
-  <aside className="w-full shrink-0 border-t border-slate-200 bg-white shadow-xl lg:w-[360px] lg:border-l lg:border-t-0">
+  promptProfiles,
+  onPromptProfileChange,
+}: RightPanelProps) => {
+  const itemAnalysisQuery = useQuery({
+    queryKey: queryKeys.aiItemAnalysis(selectedItem?.id ?? null),
+    queryFn: () => dataProvider.analyzeItem(selectedItem!.id),
+    enabled: Boolean(selectedItem && rightPanelTab === 'ai'),
+  })
+
+  const itemAnalysis = itemAnalysisQuery.data?.data
+
+  return (
+    <aside className="w-full shrink-0 border-t border-slate-200 bg-white shadow-xl lg:w-[360px] lg:border-l lg:border-t-0">
     <div className="border-b border-slate-200 bg-slate-50/50 px-6 pt-6">
       <div className="mb-4 flex items-center gap-2 text-slate-800">
         {selectedItem ? (
@@ -123,7 +136,15 @@ export const RightPanel = ({
 
       {rightPanelTab === 'ai' && selectedItem ? (
         <div className="space-y-4 p-6">
-          <AiSuggestionsCard selectedItem={selectedItem} onAssignCategory={onAssignCategory} />
+          {itemAnalysis ? (
+            <AiSuggestionsCard
+              selectedItem={selectedItem}
+              analysis={itemAnalysis}
+              onAssignCategory={onAssignCategory}
+            />
+          ) : (
+            <StatePanel type="loading" title="AI 분석 중" description="항목을 분석하고 있습니다." />
+          )}
         </div>
       ) : null}
 
@@ -139,7 +160,10 @@ export const RightPanel = ({
               }
             />
             {selectedItem ? (
-              <ChatBubble type="ai" text={`현재 항목 액션 프롬프트: ${itemActionPrompt}`} />
+              <ChatBubble
+                type="ai"
+                text={`현재 분석 프롬프트: ${promptProfiles.find((profile) => profile.key === 'item_analysis_prompt')?.promptText ?? '기본값'}`}
+              />
             ) : null}
           </div>
         </div>
@@ -148,16 +172,19 @@ export const RightPanel = ({
       {rightPanelTab === 'settings' ? (
         <div className="space-y-4 p-6">
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="text-sm font-bold text-slate-800">항목 액션 프롬프트</h3>
+            <h3 className="text-sm font-bold text-slate-800">프롬프트 프로필 설정</h3>
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
-              선택한 항목에 대해 AI가 어떤 방식으로 답변할지 기본 프롬프트를 직접 설정할 수 있습니다.
+              AI 동작 프롬프트를 키별로 관리합니다. 저장 시 즉시 서버 DB에 반영됩니다.
             </p>
-            <textarea
-              value={itemActionPrompt}
-              onChange={(event) => onItemActionPromptChange(event.target.value)}
-              placeholder="예: 지출 항목이면 카테고리 추천 + 절약 팁까지 포함해서 답해줘."
-              className="mt-3 min-h-28 w-full resize-y rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500"
-            />
+            <div className="mt-3 space-y-3">
+              {promptProfiles.map((profile) => (
+                <PromptProfileEditor
+                  key={profile.key}
+                  profile={profile}
+                  onSave={onPromptProfileChange}
+                />
+              ))}
+            </div>
           </div>
         </div>
       ) : null}
@@ -197,4 +224,49 @@ export const RightPanel = ({
       </div>
     </div>
   </aside>
-)
+  )
+}
+
+interface PromptProfileEditorProps {
+  profile: PromptProfile
+  onSave: (key: string, promptText: string) => Promise<void>
+}
+
+const PromptProfileEditor = ({ profile, onSave }: PromptProfileEditorProps) => {
+  const [value, setValue] = useState(profile.promptText)
+  const [isSaving, setIsSaving] = useState(false)
+
+  useEffect(() => {
+    setValue(profile.promptText)
+  }, [profile.promptText])
+
+  const handleSave = async () => {
+    setIsSaving(true)
+    try {
+      await onSave(profile.key, value)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <p className="text-xs font-bold text-slate-600">{profile.label}</p>
+      <textarea
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        className="mt-2 min-h-24 w-full resize-y rounded-lg border border-slate-200 bg-white p-2 text-xs outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500"
+      />
+      <div className="mt-2 flex justify-end">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={isSaving}
+          className="rounded-md bg-slate-900 px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50"
+        >
+          저장
+        </button>
+      </div>
+    </div>
+  )
+}

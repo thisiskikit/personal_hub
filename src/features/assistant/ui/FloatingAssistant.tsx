@@ -1,10 +1,8 @@
 import { Bot, MessageCircle, Minimize2, Send } from 'lucide-react'
 import { useState } from 'react'
 import { ChatBubble } from '@/shared/ui'
-import type {
-  AssistantMessage,
-  AssistantSaveMode,
-} from '@/widgets/layout/ui/useAppShellContext'
+import type { AssistantSaveMode } from '@/shared/types/ai'
+import type { AssistantMessage } from '@/widgets/layout/ui/useAppShellContext'
 
 interface FloatingAssistantProps {
   isOpen: boolean

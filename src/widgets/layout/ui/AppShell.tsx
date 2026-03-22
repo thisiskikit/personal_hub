@@ -11,6 +11,7 @@ import { serializeUiQueryState, parseUiQueryState } from '@/shared/lib/route-que
 import { MENU_TO_ROUTE, ROUTE_TO_MENU } from '@/shared/types/navigation'
 import type { ActiveMenu } from '@/shared/types/navigation'
 import type { Density, RightPanelTab, UiQueryState } from '@/shared/types/ui-state'
+import type { AssistantSaveMode, InboxParseResponse } from '@/shared/types/ai'
 import { MainHeader } from '@/widgets/layout/ui/MainHeader'
 import { LeftSidebar } from '@/widgets/layout/ui/LeftSidebar'
 import { RightPanel } from '@/widgets/layout/ui/RightPanel'
@@ -18,7 +19,6 @@ import type {
   AppShellContextValue,
   AssistantMessage,
   AssistantPendingAction,
-  AssistantSaveMode,
   InboxItem,
   InboxStatus,
   NotificationItem,
@@ -39,10 +39,7 @@ const INBOX_STORAGE_KEY = 'inboxItems'
 const NOTIFICATION_STORAGE_KEY = 'notifications'
 const DENSITY_STORAGE_KEY = 'densityMode'
 const SELECTED_ITEM_STORAGE_KEY = 'selectedItemId'
-const ITEM_ACTION_PROMPT_STORAGE_KEY = 'itemActionPrompt'
 const ASSISTANT_OPEN_STORAGE_KEY = 'assistantOpen'
-const DEFAULT_ITEM_ACTION_PROMPT =
-  '선택한 항목을 분석해서 다음 액션을 제안하고, 필요한 경우 자동화 규칙까지 추천해 줘.'
 
 const seedNotifications: NotificationItem[] = [
   {
@@ -101,22 +98,6 @@ const inferStatusFromDestination = (destination: TimelineType | 'dismissed'): In
   return 'saved'
 }
 
-const detectAssistantCandidate = (input: string): InboxItem['typeCandidate'] => {
-  const hasAmount = /(\d+[\d,]*(원|만원)?)/.test(input) || /(\d+[\d,]*)/.test(input)
-  const hasSchedule = /(내일|오후|오전|\d+시|\d{1,2}:\d{2})/.test(input)
-
-  if (hasAmount) return 'finance'
-  if (hasSchedule) return 'event'
-  if (/(할 일|todo|체크|완료)/i.test(input)) return 'task'
-  return 'memo'
-}
-
-const getSuggestedSaveMode = (typeCandidate: InboxItem['typeCandidate']): AssistantSaveMode => {
-  if (typeCandidate === 'event') return 'event'
-  if (typeCandidate === 'memo') return 'memo'
-  return 'inbox'
-}
-
 export const AppShell = () => {
   const location = useLocation()
   const navigate = useNavigate()
@@ -131,9 +112,6 @@ export const AppShell = () => {
     readStorage(NOTIFICATION_STORAGE_KEY, seedNotifications),
   )
   const [toasts, setToasts] = useState<ToastItem[]>([])
-  const [itemActionPrompt, setItemActionPrompt] = useState(() =>
-    readStorage(ITEM_ACTION_PROMPT_STORAGE_KEY, DEFAULT_ITEM_ACTION_PROMPT),
-  )
   const [isAssistantOpen, setIsAssistantOpen] = useState(() =>
     readStorage(ASSISTANT_OPEN_STORAGE_KEY, true),
   )
@@ -144,6 +122,7 @@ export const AppShell = () => {
       text: '원하는 작업을 말씀해 주세요. 저장 전에는 반드시 저장 방법을 확인해 드릴게요.',
     },
   ])
+  const [assistantDrafts, setAssistantDrafts] = useState<Record<string, InboxParseResponse>>({})
 
   const activeMenu = getActiveMenu(location.pathname)
   const ui = useMemo(() => parseUiQueryState(searchParams), [searchParams])
@@ -172,6 +151,13 @@ export const AppShell = () => {
   const financeSummary = dashboardSummaryQuery.data ?? FALLBACK_SUMMARY
   const budgetItems = budgetQuery.data ?? FALLBACK_BUDGET
   const automationRules = automationRulesQuery.data ?? FALLBACK_AUTOMATION_RULES
+
+  const promptProfilesQuery = useQuery({
+    queryKey: queryKeys.promptProfiles,
+    queryFn: dataProvider.getPromptProfiles,
+  })
+
+  const promptProfiles = promptProfilesQuery.data ?? []
 
   const selectedItem = timelineItems.find((item) => item.id === ui.item) ?? timelineItems[0] ?? null
   const filteredItems = useMemo(
@@ -211,10 +197,6 @@ export const AppShell = () => {
     if (!ui.item) return
     localStorage.setItem(SELECTED_ITEM_STORAGE_KEY, String(ui.item))
   }, [ui.item])
-
-  useEffect(() => {
-    localStorage.setItem(ITEM_ACTION_PROMPT_STORAGE_KEY, JSON.stringify(itemActionPrompt))
-  }, [itemActionPrompt])
 
   useEffect(() => {
     localStorage.setItem(ASSISTANT_OPEN_STORAGE_KEY, JSON.stringify(isAssistantOpen))
@@ -374,35 +356,56 @@ export const AppShell = () => {
   )
 
   const sendAssistantMessage = useCallback((message: string) => {
+    const parseResponseToPendingAction = (payload: InboxParseResponse): AssistantPendingAction => ({
+      id: `action-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      title: payload.entities.title || message.trim(),
+      typeCandidate: payload.primary_type,
+      suggestedMode: payload.recommended_save_mode,
+    })
+
     const trimmed = message.trim()
     if (!trimmed) return
 
-    const typeCandidate = detectAssistantCandidate(trimmed)
-    const suggestedMode = getSuggestedSaveMode(typeCandidate)
-    const pendingAction: AssistantPendingAction = {
-      id: `action-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      title: trimmed,
-      typeCandidate,
-      suggestedMode,
-    }
+    setAssistantMessages((current) => [...current, { id: `user-${Date.now()}`, role: 'user', text: trimmed }])
 
-    const saveModeLabel =
-      suggestedMode === 'event'
-        ? '바로 일정 저장'
-        : suggestedMode === 'memo'
-          ? '바로 메모 저장'
-          : '인박스 저장'
+    void dataProvider
+      .inboxParse(trimmed)
+      .then((result) => {
+        const parsed = result.data
+        const pendingAction = parseResponseToPendingAction(parsed)
+        setAssistantDrafts((current) => ({ ...current, [pendingAction.id]: parsed }))
 
-    setAssistantMessages((current) => [
-      ...current,
-      { id: `user-${Date.now()}`, role: 'user', text: trimmed },
-      {
-        id: `ai-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        role: 'ai',
-        text: `어떻게 저장할까요? 추천은 ${saveModeLabel} 입니다. 원하시는 방식을 선택해 주세요.`,
-        pendingAction,
-      },
-    ])
+        const saveModeLabel =
+          parsed.recommended_save_mode === 'event'
+            ? '바로 일정 저장'
+            : parsed.recommended_save_mode === 'memo'
+              ? '바로 메모 저장'
+              : '인박스 저장'
+
+        const clarifying = parsed.clarification_needed
+          ? '정보가 조금 부족해요. 먼저 인박스로 저장한 뒤 수정하는 것을 권장합니다.'
+          : '원하시는 저장 방식을 선택해 주세요.'
+
+        setAssistantMessages((current) => [
+          ...current,
+          {
+            id: `ai-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            role: 'ai',
+            text: `${parsed.summary} (신뢰도 ${Math.round(parsed.confidence * 100)}%)\n추천: ${saveModeLabel}\n${clarifying}`,
+            pendingAction,
+          },
+        ])
+      })
+      .catch(() => {
+        setAssistantMessages((current) => [
+          ...current,
+          {
+            id: `ai-error-${Date.now()}`,
+            role: 'ai',
+            text: 'AI 분석에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+          },
+        ])
+      })
   }, [])
 
   const confirmAssistantSave = useCallback(
@@ -421,8 +424,9 @@ export const AppShell = () => {
       if (!resolvedAction) return
 
       const status: InboxStatus = mode === 'inbox' ? 'needs_review' : mode === 'event' ? 'scheduled' : 'saved'
+      const draft = assistantDrafts[actionId]
       const typeCandidate =
-        mode === 'event' ? 'event' : mode === 'memo' ? 'memo' : resolvedAction.typeCandidate
+        mode === 'event' ? 'event' : mode === 'memo' ? 'memo' : draft?.primary_type ?? resolvedAction.typeCandidate
 
       addInboxItem({
         title: resolvedAction.title,
@@ -439,9 +443,20 @@ export const AppShell = () => {
           text: `좋아요. '${resolvedAction.title}' 항목을 ${savedTargetLabel}로 저장했습니다.`,
         },
       ])
+      setAssistantDrafts((current) => {
+        const next = { ...current }
+        delete next[actionId]
+        return next
+      })
     },
-    [addInboxItem],
+    [addInboxItem, assistantDrafts],
   )
+
+  const updatePromptProfile = useCallback(async (key: string, promptText: string) => {
+    await dataProvider.updatePromptProfile(key, promptText)
+    void queryClient.invalidateQueries({ queryKey: queryKeys.promptProfiles })
+    pushUndoToast('프롬프트를 저장했습니다', () => undefined)
+  }, [pushUndoToast, queryClient])
 
   const markNotificationsRead = useCallback(() => {
     const previous = [...notifications]
@@ -521,12 +536,12 @@ export const AppShell = () => {
       dashboardSummaryQuery.isPending ||
       budgetQuery.isPending ||
       timelineQuery.isPending ||
-      automationRulesQuery.isPending,
+      automationRulesQuery.isPending || promptProfilesQuery.isPending,
     hasError:
       dashboardSummaryQuery.isError ||
       budgetQuery.isError ||
       timelineQuery.isError ||
-      automationRulesQuery.isError,
+      automationRulesQuery.isError || promptProfilesQuery.isError,
     onAssignCategory: (itemId: number, category: string) => {
       assignCategoryMutation.mutate({ itemId, category })
       pushUndoToast(`분류를 '${category}'로 변경했습니다`, () => {
@@ -539,8 +554,8 @@ export const AppShell = () => {
         )
       })
     },
-    itemActionPrompt,
-    setItemActionPrompt,
+    promptProfiles,
+    updatePromptProfile,
     onToggleRule: (ruleId: number, active: boolean) => {
       toggleRuleMutation.mutate({ ruleId, active })
     },
@@ -598,8 +613,8 @@ export const AppShell = () => {
           rightPanelTab={ui.tab}
           onTabChange={contextValue.selectRightPanelTab}
           onAssignCategory={contextValue.onAssignCategory}
-          itemActionPrompt={itemActionPrompt}
-          onItemActionPromptChange={setItemActionPrompt}
+          promptProfiles={promptProfiles}
+          onPromptProfileChange={updatePromptProfile}
         />
       </div>
 

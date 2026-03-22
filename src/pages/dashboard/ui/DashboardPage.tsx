@@ -1,5 +1,7 @@
 import { AlertCircle, Bot, Clock, Sparkles } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { TimelineList } from '@/features/timeline/ui/TimelineList'
+import { dataProvider, queryKeys } from '@/shared/api'
 import { FilterButton, KPIStatCard, StatePanel } from '@/shared/ui'
 import { useAppShellContext } from '@/widgets/layout/ui/useAppShellContext'
 
@@ -19,6 +21,13 @@ export const DashboardPage = () => {
     processInboxItem,
     selectInboxItem,
   } = useAppShellContext()
+
+  const briefingQuery = useQuery({
+    queryKey: queryKeys.aiDashboardBriefing,
+    queryFn: dataProvider.getDashboardBriefing,
+  })
+
+  const briefing = briefingQuery.data?.data
 
   if (hasError) {
     return (
@@ -74,9 +83,20 @@ export const DashboardPage = () => {
               <Sparkles size={14} className="text-indigo-600" />
               <p className="text-sm font-bold text-indigo-900">AI 브리핑</p>
             </div>
-            <p className="mt-auto text-sm font-medium leading-snug text-indigo-800">
-              오늘 오후 일정 전후로 1시간 여유가 있습니다. 미분류 지출 내역을 정리하시겠어요?
-            </p>
+            {briefing ? (
+              <div className="mt-auto space-y-2">
+                <p className="text-sm font-semibold leading-snug text-indigo-900">{briefing.headline}</p>
+                <ul className="list-disc space-y-1 pl-4 text-xs font-medium text-indigo-800">
+                  {briefing.bullets.slice(0, 3).map((bullet) => (
+                    <li key={bullet}>{bullet}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="mt-auto text-sm font-medium leading-snug text-indigo-800">
+                오늘 운영 브리핑을 불러오는 중입니다.
+              </p>
+            )}
           </div>
         </div>
       </div>
