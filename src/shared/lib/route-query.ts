@@ -3,7 +3,7 @@ import type { Density, RightPanelTab, UiQueryState } from '@/shared/types/ui-sta
 import { DEFAULT_UI_QUERY_STATE } from '@/shared/types/ui-state'
 
 const ALLOWED_FILTERS: TimelineFilter[] = ['all', 'task', 'finance', 'event', 'memo']
-const ALLOWED_TABS: RightPanelTab[] = ['details', 'ai', 'chat']
+const ALLOWED_TABS: RightPanelTab[] = ['details', 'ai', 'chat', 'settings']
 const ALLOWED_DENSITIES: Density[] = ['comfortable', 'compact']
 
 const isTimelineType = (value: string): value is TimelineType =>
