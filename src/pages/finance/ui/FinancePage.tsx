@@ -88,6 +88,7 @@ export const FinancePage = () => {
           density={ui.density}
           onSelect={selectItem}
           onAssignCategory={onAssignCategory}
+          onStatusChange={() => {}}
         />
       ) : (
         <StatePanel
