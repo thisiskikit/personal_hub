@@ -22,6 +22,9 @@ interface MockDb {
   automationRules: AutomationRule[]
 }
 
+const MOCK_DB_STORAGE_KEY = 'mockDataProviderDb'
+const MOCK_PROMPT_STORAGE_KEY = 'mockPromptProfiles'
+
 const clone = <T>(value: T): T => structuredClone(value)
 
 const delay = (ms = 120) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -51,6 +54,48 @@ const promptProfiles: PromptProfile[] = [
     updatedAt: new Date().toISOString(),
   },
 ]
+
+const readLocal = <T>(key: string, fallback: T): T => {
+  if (typeof window === 'undefined') return fallback
+  const raw = window.localStorage.getItem(key)
+  if (!raw) return fallback
+  try {
+    return JSON.parse(raw) as T
+  } catch {
+    return fallback
+  }
+}
+
+const writeLocal = (key: string, value: unknown) => {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(key, JSON.stringify(value))
+}
+
+const restoreMockState = () => {
+  const storedDb = readLocal<MockDb | null>(MOCK_DB_STORAGE_KEY, null)
+  const storedPrompts = readLocal<PromptProfile[] | null>(MOCK_PROMPT_STORAGE_KEY, null)
+
+  if (storedDb) {
+    db.financeSummary = storedDb.financeSummary
+    db.budgetItems = storedDb.budgetItems
+    db.timelineItems = storedDb.timelineItems
+    db.automationRules = storedDb.automationRules
+  }
+
+  if (storedPrompts?.length) {
+    promptProfiles.splice(0, promptProfiles.length, ...storedPrompts)
+  }
+}
+
+const persistMockDb = () => {
+  writeLocal(MOCK_DB_STORAGE_KEY, db)
+}
+
+const persistPromptProfiles = () => {
+  writeLocal(MOCK_PROMPT_STORAGE_KEY, promptProfiles)
+}
+
+restoreMockState()
 
 const filterTimeline = (items: TimelineItem[], params?: TimelineParams) => {
   if (!params || !params.type || params.type === 'all') return items
@@ -89,6 +134,7 @@ export const mockDataProvider: DataProvider = {
       active: Boolean(payload.active),
     }
     db.automationRules = [item, ...db.automationRules]
+    persistMockDb()
     return clone(item)
   },
   async updateTimelineCategory(itemId, category) {
@@ -102,6 +148,8 @@ export const mockDataProvider: DataProvider = {
       db.financeSummary.pendingCount = Math.max(db.financeSummary.pendingCount - 1, 0)
     }
 
+    persistMockDb()
+
     return clone(target)
   },
   async toggleAutomationRule(ruleId, active) {
@@ -109,6 +157,7 @@ export const mockDataProvider: DataProvider = {
     const target = db.automationRules.find((rule) => rule.id === ruleId)
     if (!target) return null
     target.active = active
+    persistMockDb()
     return clone(target)
   },
   async getPromptProfiles() {
@@ -121,6 +170,7 @@ export const mockDataProvider: DataProvider = {
     if (!target) throw new Error('Prompt profile not found')
     target.promptText = promptText
     target.updatedAt = new Date().toISOString()
+    persistPromptProfiles()
     return clone(target)
   },
   async inboxParse(input) {
