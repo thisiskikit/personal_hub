@@ -169,9 +169,12 @@ const extractResponseText = (payload) => {
 
 app.post('/api/assistant/chat', async (req, res) => {
   try {
-    const { apiKey, model, message, selectedItem } = req.body
+    const { model, message, selectedItem } = req.body
+    const apiKey = process.env.OPENAI_API_KEY
 
-    if (!apiKey) return res.status(400).json({ error: 'OpenAI API 키가 필요합니다.' })
+    if (!apiKey) {
+      return res.status(500).json({ error: 'OPENAI_API_KEY 시크릿이 설정되지 않았습니다.' })
+    }
     if (!model) return res.status(400).json({ error: '모델 번호가 필요합니다.' })
     if (!message) return res.status(400).json({ error: '메시지를 입력해 주세요.' })
 

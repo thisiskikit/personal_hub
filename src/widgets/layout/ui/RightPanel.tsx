@@ -34,22 +34,21 @@ const OPENAI_SETTINGS_KEY = 'openaiAssistantSettings'
 const readSettings = () => {
   const raw = localStorage.getItem(OPENAI_SETTINGS_KEY)
   if (!raw) {
-    return { apiKey: '', model: 'gpt-5.4' }
+    return { model: 'gpt-5.4' }
   }
 
   try {
-    const parsed = JSON.parse(raw) as { apiKey?: string; model?: string }
+    const parsed = JSON.parse(raw) as { model?: string }
     return {
-      apiKey: parsed.apiKey ?? '',
       model: parsed.model ?? 'gpt-5.4',
     }
   } catch {
-    return { apiKey: '', model: 'gpt-5.4' }
+    return { model: 'gpt-5.4' }
   }
 }
 
-const saveSettings = (apiKey: string, model: string) => {
-  localStorage.setItem(OPENAI_SETTINGS_KEY, JSON.stringify({ apiKey, model }))
+const saveSettings = (model: string) => {
+  localStorage.setItem(OPENAI_SETTINGS_KEY, JSON.stringify({ model }))
 }
 
 export const RightPanel = ({
@@ -71,10 +70,10 @@ export const RightPanel = ({
     return '무엇을 도와드릴까요?'
   }, [selectedItem])
 
-  const updateSettings = (nextApiKey: string, nextModel: string) => {
-    const next = { apiKey: nextApiKey, model: nextModel }
+  const updateSettings = (nextModel: string) => {
+    const next = { model: nextModel }
     setSettings(next)
-    saveSettings(nextApiKey, nextModel)
+    saveSettings(nextModel)
   }
 
   const sendMessage = async () => {
@@ -93,18 +92,11 @@ export const RightPanel = ({
 
     setChatMessages((prev) => [...prev, userMessage])
 
-    if (!settings.apiKey) {
-      setError('OpenAI API 키를 먼저 설정 탭에서 입력해 주세요.')
-      setIsSending(false)
-      return
-    }
-
     try {
       const response = await fetch('/api/assistant/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          apiKey: settings.apiKey,
           model: settings.model,
           message: trimmedMessage,
           selectedItem,
@@ -244,11 +236,6 @@ export const RightPanel = ({
         {rightPanelTab === 'chat' ? (
           <div className="flex min-h-full flex-col gap-4 p-6">
             <ChatBubble type="ai" text={helperMessage} />
-            {!settings.apiKey ? (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-medium text-amber-700">
-                API 키가 설정되지 않았습니다. 설정 탭에서 OpenAI API 키를 입력해 주세요.
-              </div>
-            ) : null}
             {chatMessages.map((item) => (
               <ChatBubble key={item.id} type={item.type} text={item.text} />
             ))}
@@ -263,22 +250,18 @@ export const RightPanel = ({
         {rightPanelTab === 'settings' ? (
           <div className="space-y-5 p-6">
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="mb-2 text-sm font-bold text-slate-800">OpenAI API Key</p>
-              <input
-                value={settings.apiKey}
-                onChange={(event) => updateSettings(event.target.value, settings.model)}
-                placeholder="sk-..."
-                type="password"
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500"
-              />
-              <p className="mt-2 text-xs text-slate-500">브라우저 localStorage 에 저장됩니다.</p>
+              <p className="text-sm font-bold text-slate-800">OpenAI API Key</p>
+              <p className="mt-2 text-xs text-slate-500">
+                API 키는 서버의 <span className="font-semibold">OPENAI_API_KEY</span> 시크릿을
+                사용합니다.
+              </p>
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <p className="mb-2 text-sm font-bold text-slate-800">모델 번호</p>
               <select
                 value={settings.model}
-                onChange={(event) => updateSettings(settings.apiKey, event.target.value)}
+                onChange={(event) => updateSettings(event.target.value)}
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500"
               >
                 {OPENAI_MODELS.map((model) => (
