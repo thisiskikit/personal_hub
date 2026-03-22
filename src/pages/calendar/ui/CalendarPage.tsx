@@ -66,6 +66,7 @@ export const CalendarPage = () => {
           density={ui.density}
           onSelect={selectItem}
           onAssignCategory={onAssignCategory}
+          onComplete={() => undefined}
         />
       ) : (
         <StatePanel
