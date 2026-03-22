@@ -1,7 +1,18 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
+import OpenAI from 'openai'
 import { pool, initDb } from './db.js'
+
+const openai = process.env.OPENAI_API_KEY
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null
+
+const resolveModel = (requestedModel) => {
+  if (!requestedModel) return 'gpt-4o'
+  if (requestedModel.includes('nano') || requestedModel.includes('mini')) return 'gpt-4o-mini'
+  return 'gpt-4o'
+}
 
 const app = express()
 const PORT = process.env.PORT || 8000
@@ -222,6 +233,35 @@ app.post('/api/assistant/chat', async (req, res) => {
   } catch (err) {
     console.error(err)
     return res.status(500).json({ error: err.message })
+  }
+})
+
+app.post('/api/assistant/chat', async (req, res) => {
+  if (!openai) {
+    return res.status(503).json({ error: 'OpenAI API 키가 설정되지 않았습니다. Secrets에 OPENAI_API_KEY를 추가해주세요.' })
+  }
+  try {
+    const { model, message, selectedItem } = req.body
+    const resolvedModel = resolveModel(model)
+
+    const systemPrompt = selectedItem
+      ? `당신은 개인 운영 허브(OpsRoom)의 AI 어시스턴트입니다. 사용자가 선택한 항목: ${JSON.stringify(selectedItem)}. 이 항목과 관련해서 한국어로 도움을 주세요.`
+      : `당신은 개인 운영 허브(OpsRoom)의 AI 어시스턴트입니다. 일정, 재무, 자동화 등 업무 운영에 관한 질문에 한국어로 답변해주세요.`
+
+    const completion = await openai.chat.completions.create({
+      model: resolvedModel,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: message },
+      ],
+      max_tokens: 500,
+    })
+
+    const text = completion.choices[0]?.message?.content ?? ''
+    res.json({ text })
+  } catch (err) {
+    console.error('OpenAI error:', err)
+    res.status(500).json({ error: err.message ?? 'AI 응답 호출에 실패했습니다.' })
   }
 })
 
