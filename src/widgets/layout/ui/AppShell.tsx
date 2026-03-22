@@ -526,8 +526,9 @@ export const AppShell = () => {
         setIsQuickAddOpen(true)
       }
       if (commandId === 'open-inbox') {
-        void navigate('/dashboard')
+        void navigate('/inbox')
       }
+      if (commandId === 'go-inbox') void navigate('/inbox')
       if (commandId === 'open-ai-tab') {
         setUi({ tab: 'ai' })
       }
@@ -604,6 +605,7 @@ export const AppShell = () => {
 
   const commandItems = [
     { id: 'go-dashboard', label: '오늘 대시보드로 이동' },
+    { id: 'go-inbox', label: '인박스로 이동' },
     { id: 'go-finance', label: '재무 장부로 이동' },
     { id: 'go-calendar', label: '통합 일정으로 이동' },
     { id: 'go-notes', label: '메모 및 지식으로 이동' },
