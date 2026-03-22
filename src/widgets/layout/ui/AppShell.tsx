@@ -19,6 +19,7 @@ import type {
   AppShellContextValue,
   AssistantMessage,
   AssistantPendingAction,
+  InboxParsingRule,
   InboxItem,
   InboxStatus,
   NotificationItem,
@@ -40,6 +41,24 @@ const NOTIFICATION_STORAGE_KEY = 'notifications'
 const DENSITY_STORAGE_KEY = 'densityMode'
 const SELECTED_ITEM_STORAGE_KEY = 'selectedItemId'
 const ASSISTANT_OPEN_STORAGE_KEY = 'assistantOpen'
+const INBOX_RULES_STORAGE_KEY = 'inboxParsingRules'
+
+const DEFAULT_INBOX_RULES: Omit<InboxParsingRule, 'id'>[] = [
+  { label: '일정 키워드', pattern: '내일|오전|오후|미팅|회의|\d+시', typeCandidate: 'event', recommendedSaveMode: 'event', priority: 100 },
+  { label: '지출 금액', pattern: '\\d+[\\d,]*(원|만원)', typeCandidate: 'finance', recommendedSaveMode: 'inbox', priority: 90 },
+  { label: '할 일 키워드', pattern: '할 일|todo|체크|완료', typeCandidate: 'task', recommendedSaveMode: 'inbox', priority: 80 },
+]
+
+const applyInboxRule = (input: string, rules: InboxParsingRule[]) => {
+  const sorted = [...rules].sort((a, b) => b.priority - a.priority)
+  return sorted.find((rule) => {
+    try {
+      return new RegExp(rule.pattern, 'i').test(input)
+    } catch {
+      return false
+    }
+  })
+}
 
 const seedNotifications: NotificationItem[] = [
   {
@@ -98,11 +117,13 @@ const inferStatusFromDestination = (destination: TimelineType | 'dismissed'): In
   return 'saved'
 }
 
-const buildLocalInboxFallback = (input: string): InboxParseResponse => {
+const buildLocalInboxFallback = (input: string, ruleMatch?: InboxParsingRule): InboxParseResponse => {
   const trimmed = input.trim()
   const isEvent = /(내일|오전|오후|\d+시|\d{1,2}:\d{2})/.test(trimmed)
   const isFinance = /(\d+[\d,]*(원|만원)?)/.test(trimmed)
-  const primaryType = isEvent ? 'event' : isFinance ? 'finance' : 'memo'
+  const primaryType = ruleMatch?.typeCandidate ?? (isEvent ? 'event' : isFinance ? 'finance' : 'memo')
+  const recommendedSaveMode =
+    ruleMatch?.recommendedSaveMode ?? (isEvent ? 'event' : primaryType === 'memo' ? 'memo' : 'inbox')
   return {
     mode: 'inbox_parse',
     summary: '오프라인 규칙으로 입력을 분석했습니다.',
@@ -110,7 +131,7 @@ const buildLocalInboxFallback = (input: string): InboxParseResponse => {
     secondary_types: [],
     confidence: 0.55,
     clarification_needed: false,
-    recommended_save_mode: isEvent ? 'event' : primaryType === 'memo' ? 'memo' : 'inbox',
+    recommended_save_mode: recommendedSaveMode,
     entities: {
       title: trimmed,
       datetime_text: isEvent ? trimmed : null,
@@ -119,7 +140,7 @@ const buildLocalInboxFallback = (input: string): InboxParseResponse => {
       people: [],
       tags: [],
     },
-    suggested_actions: ['저장 방식 선택'],
+    suggested_actions: ruleMatch ? [`규칙 적용: ${ruleMatch.label}`] : ['저장 방식 선택'],
   }
 }
 
@@ -148,6 +169,11 @@ export const AppShell = () => {
     },
   ])
   const [assistantDrafts, setAssistantDrafts] = useState<Record<string, InboxParseResponse>>({})
+  const [inboxParsingRules, setInboxParsingRules] = useState<InboxParsingRule[]>(() => {
+    const stored = readStorage<InboxParsingRule[] | null>(INBOX_RULES_STORAGE_KEY, null)
+    if (stored?.length) return stored
+    return DEFAULT_INBOX_RULES.map((rule) => ({ ...rule, id: `rule-${Math.random().toString(36).slice(2, 8)}` }))
+  })
 
   const activeMenu = getActiveMenu(location.pathname)
   const ui = useMemo(() => parseUiQueryState(searchParams), [searchParams])
@@ -226,6 +252,10 @@ export const AppShell = () => {
   useEffect(() => {
     localStorage.setItem(ASSISTANT_OPEN_STORAGE_KEY, JSON.stringify(isAssistantOpen))
   }, [isAssistantOpen])
+
+  useEffect(() => {
+    localStorage.setItem(INBOX_RULES_STORAGE_KEY, JSON.stringify(inboxParsingRules))
+  }, [inboxParsingRules])
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -397,17 +427,26 @@ export const AppShell = () => {
       .inboxParse(trimmed)
       .then((result) => {
         const parsed = result.data
-        const pendingAction = parseResponseToPendingAction(parsed)
-        setAssistantDrafts((current) => ({ ...current, [pendingAction.id]: parsed }))
+        const ruleMatch = applyInboxRule(trimmed, inboxParsingRules)
+        const normalized = ruleMatch
+          ? {
+              ...parsed,
+              primary_type: ruleMatch.typeCandidate,
+              recommended_save_mode: ruleMatch.recommendedSaveMode,
+              summary: `${parsed.summary} (규칙 '${ruleMatch.label}' 적용)`,
+            }
+          : parsed
+        const pendingAction = parseResponseToPendingAction(normalized)
+        setAssistantDrafts((current) => ({ ...current, [pendingAction.id]: normalized }))
 
         const saveModeLabel =
-          parsed.recommended_save_mode === 'event'
+          normalized.recommended_save_mode === 'event'
             ? '바로 일정 저장'
-            : parsed.recommended_save_mode === 'memo'
+            : normalized.recommended_save_mode === 'memo'
               ? '바로 메모 저장'
               : '인박스 저장'
 
-        const clarifying = parsed.clarification_needed
+        const clarifying = normalized.clarification_needed
           ? '정보가 조금 부족해요. 먼저 인박스로 저장한 뒤 수정하는 것을 권장합니다.'
           : '원하시는 저장 방식을 선택해 주세요.'
 
@@ -416,13 +455,14 @@ export const AppShell = () => {
           {
             id: `ai-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
             role: 'ai',
-            text: `${parsed.summary} (신뢰도 ${Math.round(parsed.confidence * 100)}%)\n추천: ${saveModeLabel}\n${clarifying}`,
+            text: `${normalized.summary} (신뢰도 ${Math.round(normalized.confidence * 100)}%)\n추천: ${saveModeLabel}\n${clarifying}`,
             pendingAction,
           },
         ])
       })
       .catch(() => {
-        const fallback = buildLocalInboxFallback(trimmed)
+        const ruleMatch = applyInboxRule(trimmed, inboxParsingRules)
+        const fallback = buildLocalInboxFallback(trimmed, ruleMatch)
         const pendingAction = parseResponseToPendingAction(fallback)
         setAssistantDrafts((current) => ({ ...current, [pendingAction.id]: fallback }))
         setAssistantMessages((current) => [
@@ -435,7 +475,7 @@ export const AppShell = () => {
           },
         ])
       })
-  }, [])
+  }, [inboxParsingRules])
 
   const confirmAssistantSave = useCallback(
     (actionId: string, mode: AssistantSaveMode) => {
@@ -491,6 +531,21 @@ export const AppShell = () => {
       throw new Error('prompt profile update failed')
     }
   }, [pushUndoToast, queryClient])
+
+  const addInboxParsingRule = useCallback((rule: Omit<InboxParsingRule, 'id'>) => {
+    const nextRule: InboxParsingRule = { ...rule, id: `rule-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` }
+    setInboxParsingRules((current) => [nextRule, ...current])
+  }, [])
+
+  const updateInboxParsingRule = useCallback((ruleId: string, patch: Partial<Omit<InboxParsingRule, 'id'>>) => {
+    setInboxParsingRules((current) =>
+      current.map((rule) => (rule.id === ruleId ? { ...rule, ...patch } : rule)),
+    )
+  }, [])
+
+  const deleteInboxParsingRule = useCallback((ruleId: string) => {
+    setInboxParsingRules((current) => current.filter((rule) => rule.id !== ruleId))
+  }, [])
 
   const markNotificationsRead = useCallback(() => {
     const previous = [...notifications]
@@ -591,6 +646,10 @@ export const AppShell = () => {
     },
     promptProfiles,
     updatePromptProfile,
+    inboxParsingRules,
+    addInboxParsingRule,
+    updateInboxParsingRule,
+    deleteInboxParsingRule,
     onToggleRule: (ruleId: number, active: boolean) => {
       toggleRuleMutation.mutate({ ruleId, active })
     },
@@ -651,6 +710,10 @@ export const AppShell = () => {
           onAssignCategory={contextValue.onAssignCategory}
           promptProfiles={promptProfiles}
           onPromptProfileChange={updatePromptProfile}
+          inboxParsingRules={inboxParsingRules}
+          onAddInboxParsingRule={addInboxParsingRule}
+          onUpdateInboxParsingRule={updateInboxParsingRule}
+          onDeleteInboxParsingRule={deleteInboxParsingRule}
         />
       </div>
 

@@ -47,6 +47,15 @@ export interface AssistantMessage {
   pendingAction?: AssistantPendingAction
 }
 
+export interface InboxParsingRule {
+  id: string
+  label: string
+  pattern: string
+  typeCandidate: TimelineType
+  recommendedSaveMode: AssistantSaveMode
+  priority: number
+}
+
 export interface AppShellContextValue {
   activeMenu: ActiveMenu
   ui: UiQueryState
@@ -79,6 +88,10 @@ export interface AppShellContextValue {
   onToggleRule: (ruleId: number, active: boolean) => void
   promptProfiles: PromptProfile[]
   updatePromptProfile: (key: string, promptText: string) => Promise<void>
+  inboxParsingRules: InboxParsingRule[]
+  addInboxParsingRule: (rule: Omit<InboxParsingRule, 'id'>) => void
+  updateInboxParsingRule: (ruleId: string, patch: Partial<Omit<InboxParsingRule, 'id'>>) => void
+  deleteInboxParsingRule: (ruleId: string) => void
   assistantMessages: AssistantMessage[]
   sendAssistantMessage: (message: string) => void
   confirmAssistantSave: (actionId: string, mode: AssistantSaveMode) => void

@@ -16,6 +16,7 @@ import { dataProvider, queryKeys } from '@/shared/api'
 import type { ItemAnalysisResponse, PromptProfile } from '@/shared/types/ai'
 import type { RightPanelTab } from '@/shared/types/ui-state'
 import { ChatBubble, DetailRow, RightTab, StatePanel, StatusBadge } from '@/shared/ui'
+import type { InboxParsingRule } from '@/widgets/layout/ui/useAppShellContext'
 
 interface RightPanelProps {
   selectedItem: TimelineItem | null
@@ -24,6 +25,10 @@ interface RightPanelProps {
   onAssignCategory: (itemId: number, category: string) => void
   promptProfiles: PromptProfile[]
   onPromptProfileChange: (key: string, promptText: string) => Promise<void>
+  inboxParsingRules: InboxParsingRule[]
+  onAddInboxParsingRule: (rule: Omit<InboxParsingRule, 'id'>) => void
+  onUpdateInboxParsingRule: (ruleId: string, patch: Partial<Omit<InboxParsingRule, 'id'>>) => void
+  onDeleteInboxParsingRule: (ruleId: string) => void
 }
 
 export const RightPanel = ({
@@ -33,6 +38,10 @@ export const RightPanel = ({
   onAssignCategory,
   promptProfiles,
   onPromptProfileChange,
+  inboxParsingRules,
+  onAddInboxParsingRule,
+  onUpdateInboxParsingRule,
+  onDeleteInboxParsingRule,
 }: RightPanelProps) => {
   const itemAnalysisQuery = useQuery({
     queryKey: queryKeys.aiItemAnalysis(selectedItem?.id ?? null),
@@ -204,6 +213,38 @@ export const RightPanel = ({
                 </p>
               )}
             </div>
+
+            <div className="mt-4 border-t border-slate-100 pt-3">
+              <p className="text-xs font-bold text-slate-700">인박스 분류 규칙</p>
+              <p className="mt-1 text-xs text-slate-500">
+                AI 응답 전/후에 적용할 로컬 규칙입니다. 우선순위가 높은 규칙부터 매칭됩니다.
+              </p>
+              <div className="mt-2 space-y-2">
+                {inboxParsingRules.map((rule) => (
+                  <InboxRuleEditor
+                    key={rule.id}
+                    rule={rule}
+                    onChange={onUpdateInboxParsingRule}
+                    onDelete={onDeleteInboxParsingRule}
+                  />
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  onAddInboxParsingRule({
+                    label: '새 규칙',
+                    pattern: '키워드',
+                    typeCandidate: 'memo',
+                    recommendedSaveMode: 'inbox',
+                    priority: 50,
+                  })
+                }
+                className="mt-2 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
+              >
+                규칙 추가
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -245,6 +286,71 @@ export const RightPanel = ({
   </aside>
   )
 }
+
+interface InboxRuleEditorProps {
+  rule: InboxParsingRule
+  onChange: (ruleId: string, patch: Partial<Omit<InboxParsingRule, 'id'>>) => void
+  onDelete: (ruleId: string) => void
+}
+
+const InboxRuleEditor = ({ rule, onChange, onDelete }: InboxRuleEditorProps) => (
+  <div className="rounded-lg border border-slate-200 bg-white p-2">
+    <input
+      value={rule.label}
+      onChange={(event) => onChange(rule.id, { label: event.target.value })}
+      className="mb-1 w-full rounded border border-slate-200 px-2 py-1 text-xs"
+      placeholder="규칙 이름"
+    />
+    <input
+      value={rule.pattern}
+      onChange={(event) => onChange(rule.id, { pattern: event.target.value })}
+      className="mb-1 w-full rounded border border-slate-200 px-2 py-1 text-xs"
+      placeholder="정규식 또는 키워드"
+    />
+    <div className="grid grid-cols-3 gap-1">
+      <select
+        value={rule.typeCandidate}
+        onChange={(event) =>
+          onChange(rule.id, { typeCandidate: event.target.value as InboxParsingRule['typeCandidate'] })
+        }
+        className="rounded border border-slate-200 px-1 py-1 text-xs"
+      >
+        <option value="event">일정</option>
+        <option value="finance">거래</option>
+        <option value="memo">메모</option>
+        <option value="task">할 일</option>
+      </select>
+      <select
+        value={rule.recommendedSaveMode}
+        onChange={(event) =>
+          onChange(rule.id, {
+            recommendedSaveMode: event.target.value as InboxParsingRule['recommendedSaveMode'],
+          })
+        }
+        className="rounded border border-slate-200 px-1 py-1 text-xs"
+      >
+        <option value="inbox">인박스</option>
+        <option value="event">일정</option>
+        <option value="memo">메모</option>
+      </select>
+      <input
+        type="number"
+        value={rule.priority}
+        onChange={(event) => onChange(rule.id, { priority: Number(event.target.value) })}
+        className="rounded border border-slate-200 px-1 py-1 text-xs"
+      />
+    </div>
+    <div className="mt-1 flex justify-end">
+      <button
+        type="button"
+        onClick={() => onDelete(rule.id)}
+        className="text-[11px] font-semibold text-rose-600"
+      >
+        삭제
+      </button>
+    </div>
+  </div>
+)
 
 interface PromptProfileEditorProps {
   profile: PromptProfile
