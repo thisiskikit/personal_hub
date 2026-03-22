@@ -29,6 +29,7 @@ describe('TimelineList', () => {
         density="comfortable"
         onSelect={vi.fn()}
         onAssignCategory={onAssignCategory}
+        onStatusChange={vi.fn()}
       />,
     )
 

@@ -19,6 +19,7 @@ interface TimelineListProps {
   density: Density
   onSelect: (id: number) => void
   onAssignCategory: (itemId: number, category: string) => void
+  onStatusChange: (itemId: number, status: "completed" | "saved") => void
 }
 
 const TimelineTypeIcon = ({ item }: { item: TimelineItem }) => {
@@ -49,6 +50,7 @@ export const TimelineList = ({
   density,
   onSelect,
   onAssignCategory,
+  onStatusChange,
 }: TimelineListProps) => (
   <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm divide-y divide-slate-100">
     {items.map((item) => {
@@ -144,7 +146,13 @@ export const TimelineList = ({
                 <button className="rounded p-1.5 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600">
                   <Link2 size={16} />
                 </button>
-                <button className="rounded p-1.5 text-slate-400 transition-colors hover:bg-emerald-50 hover:text-emerald-600">
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onStatusChange(item.id, item.status === "completed" ? "saved" : "completed")
+                  }}
+                  className="rounded p-1.5 text-slate-400 transition-colors hover:bg-emerald-50 hover:text-emerald-600"
+                >
                   <Check size={16} />
                 </button>
               </div>

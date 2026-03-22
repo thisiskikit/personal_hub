@@ -13,9 +13,10 @@ import { NavItem } from '@/shared/ui'
 interface LeftSidebarProps {
   activeMenu: ActiveMenu
   pendingCount: number
+  inboxCount: number
 }
 
-export const LeftSidebar = ({ activeMenu, pendingCount }: LeftSidebarProps) => (
+export const LeftSidebar = ({ activeMenu, pendingCount, inboxCount }: LeftSidebarProps) => (
   <aside className="hidden w-64 shrink-0 flex-col bg-slate-900 text-slate-300 lg:flex">
     <div className="mb-2 flex items-center gap-3 p-6">
       <div className="flex h-8 w-8 items-center justify-center rounded bg-indigo-500 font-bold text-white shadow-lg shadow-indigo-500/30">
@@ -31,6 +32,7 @@ export const LeftSidebar = ({ activeMenu, pendingCount }: LeftSidebarProps) => (
         icon={<LayoutDashboard size={18} />}
         label="오늘 대시보드"
         activeMenu={activeMenu}
+        badge={inboxCount}
       />
       <NavItem
         id="finance"
