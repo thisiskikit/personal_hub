@@ -13,7 +13,7 @@ import {
 import type { TimelineItem } from '@/entities/timeline/model/types'
 import { AiSuggestionsCard } from '@/features/assistant/ui/AiSuggestionsCard'
 import { dataProvider, queryKeys } from '@/shared/api'
-import type { PromptProfile } from '@/shared/types/ai'
+import type { ItemAnalysisResponse, PromptProfile } from '@/shared/types/ai'
 import type { RightPanelTab } from '@/shared/types/ui-state'
 import { ChatBubble, DetailRow, RightTab, StatePanel, StatusBadge } from '@/shared/ui'
 
@@ -40,7 +40,20 @@ export const RightPanel = ({
     enabled: Boolean(selectedItem && rightPanelTab === 'ai'),
   })
 
-  const itemAnalysis = itemAnalysisQuery.data?.data
+  const fallbackAnalysis: ItemAnalysisResponse | null = selectedItem
+    ? {
+        mode: 'item_analysis',
+        item_id: selectedItem.id,
+        summary: '기본 분석 결과입니다.',
+        best_interpretation: '서버 연결 전에는 규칙 기반 요약만 제공합니다.',
+        alternative_interpretations: [],
+        confidence: 0.52,
+        approval_required: selectedItem.type === 'finance',
+        suggested_actions: selectedItem.type === 'finance' ? ['회의비로 분류', '관련 메모 작성'] : ['관련 메모 작성'],
+        rule_draft: null,
+      }
+    : null
+  const itemAnalysis = itemAnalysisQuery.data?.data ?? fallbackAnalysis
 
   return (
     <aside className="w-full shrink-0 border-t border-slate-200 bg-white shadow-xl lg:w-[360px] lg:border-l lg:border-t-0">
@@ -177,13 +190,19 @@ export const RightPanel = ({
               AI 동작 프롬프트를 키별로 관리합니다. 저장 시 즉시 서버 DB에 반영됩니다.
             </p>
             <div className="mt-3 space-y-3">
-              {promptProfiles.map((profile) => (
-                <PromptProfileEditor
-                  key={profile.key}
-                  profile={profile}
-                  onSave={onPromptProfileChange}
-                />
-              ))}
+              {promptProfiles.length ? (
+                promptProfiles.map((profile) => (
+                  <PromptProfileEditor
+                    key={profile.key}
+                    profile={profile}
+                    onSave={onPromptProfileChange}
+                  />
+                ))
+              ) : (
+                <p className="rounded-md bg-slate-50 px-2 py-3 text-xs text-slate-500">
+                  프롬프트 프로필 서버에 연결되지 않았습니다. API 서버를 확인해 주세요.
+                </p>
+              )}
             </div>
           </div>
         </div>

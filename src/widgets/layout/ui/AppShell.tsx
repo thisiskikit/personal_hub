@@ -98,6 +98,31 @@ const inferStatusFromDestination = (destination: TimelineType | 'dismissed'): In
   return 'saved'
 }
 
+const buildLocalInboxFallback = (input: string): InboxParseResponse => {
+  const trimmed = input.trim()
+  const isEvent = /(내일|오전|오후|\d+시|\d{1,2}:\d{2})/.test(trimmed)
+  const isFinance = /(\d+[\d,]*(원|만원)?)/.test(trimmed)
+  const primaryType = isEvent ? 'event' : isFinance ? 'finance' : 'memo'
+  return {
+    mode: 'inbox_parse',
+    summary: '오프라인 규칙으로 입력을 분석했습니다.',
+    primary_type: primaryType,
+    secondary_types: [],
+    confidence: 0.55,
+    clarification_needed: false,
+    recommended_save_mode: isEvent ? 'event' : primaryType === 'memo' ? 'memo' : 'inbox',
+    entities: {
+      title: trimmed,
+      datetime_text: isEvent ? trimmed : null,
+      amount_text: isFinance ? trimmed : null,
+      location: null,
+      people: [],
+      tags: [],
+    },
+    suggested_actions: ['저장 방식 선택'],
+  }
+}
+
 export const AppShell = () => {
   const location = useLocation()
   const navigate = useNavigate()
@@ -397,12 +422,16 @@ export const AppShell = () => {
         ])
       })
       .catch(() => {
+        const fallback = buildLocalInboxFallback(trimmed)
+        const pendingAction = parseResponseToPendingAction(fallback)
+        setAssistantDrafts((current) => ({ ...current, [pendingAction.id]: fallback }))
         setAssistantMessages((current) => [
           ...current,
           {
             id: `ai-error-${Date.now()}`,
             role: 'ai',
-            text: 'AI 분석에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+            text: '서버 연결이 불안정해서 로컬 규칙으로 처리했어요. 저장 방식을 선택해 주세요.',
+            pendingAction,
           },
         ])
       })
@@ -453,9 +482,14 @@ export const AppShell = () => {
   )
 
   const updatePromptProfile = useCallback(async (key: string, promptText: string) => {
-    await dataProvider.updatePromptProfile(key, promptText)
-    void queryClient.invalidateQueries({ queryKey: queryKeys.promptProfiles })
-    pushUndoToast('프롬프트를 저장했습니다', () => undefined)
+    try {
+      await dataProvider.updatePromptProfile(key, promptText)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.promptProfiles })
+      pushUndoToast('프롬프트를 저장했습니다', () => undefined)
+    } catch {
+      pushUndoToast('프롬프트 저장 실패: API 서버 연결을 확인해 주세요', () => undefined)
+      throw new Error('prompt profile update failed')
+    }
   }, [pushUndoToast, queryClient])
 
   const markNotificationsRead = useCallback(() => {
@@ -536,12 +570,12 @@ export const AppShell = () => {
       dashboardSummaryQuery.isPending ||
       budgetQuery.isPending ||
       timelineQuery.isPending ||
-      automationRulesQuery.isPending || promptProfilesQuery.isPending,
+      automationRulesQuery.isPending,
     hasError:
       dashboardSummaryQuery.isError ||
       budgetQuery.isError ||
       timelineQuery.isError ||
-      automationRulesQuery.isError || promptProfilesQuery.isError,
+      automationRulesQuery.isError,
     onAssignCategory: (itemId: number, category: string) => {
       assignCategoryMutation.mutate({ itemId, category })
       pushUndoToast(`분류를 '${category}'로 변경했습니다`, () => {

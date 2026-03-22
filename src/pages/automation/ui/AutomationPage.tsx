@@ -18,6 +18,19 @@ export const AutomationPage = () => {
     onSuccess: (result) => {
       setDraft(result.data)
     },
+    onError: (_, input) => {
+      setDraft({
+        mode: 'rule_draft',
+        human_summary: '서버 연결 없이 임시 규칙 초안을 만들었습니다.',
+        trigger_text: input,
+        condition_text: '조건 충족 시',
+        action_text: '후속 알림 생성',
+        category: '운영',
+        approval_required: true,
+        default_active: false,
+        risk_level: 'medium',
+      })
+    },
   })
 
   const saveDraftMutation = useMutation({

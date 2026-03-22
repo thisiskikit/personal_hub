@@ -92,6 +92,10 @@ export const DashboardPage = () => {
                   ))}
                 </ul>
               </div>
+            ) : briefingQuery.isError ? (
+              <p className="mt-auto text-sm font-medium leading-snug text-indigo-800">
+                AI 브리핑 서버 연결에 실패해 기본 대시보드만 표시합니다.
+              </p>
             ) : (
               <p className="mt-auto text-sm font-medium leading-snug text-indigo-800">
                 오늘 운영 브리핑을 불러오는 중입니다.
