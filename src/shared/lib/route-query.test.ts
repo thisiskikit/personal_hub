@@ -25,4 +25,11 @@ describe('route-query', () => {
     expect(next.get('filter')).toBe('finance')
     expect(next.get('density')).toBe('compact')
   })
+
+  it('keeps settings tab when provided', () => {
+    const params = new URLSearchParams('tab=settings')
+    const parsed = parseUiQueryState(params)
+
+    expect(parsed.tab).toBe('settings')
+  })
 })

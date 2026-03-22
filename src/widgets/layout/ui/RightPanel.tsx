@@ -18,6 +18,8 @@ interface RightPanelProps {
   rightPanelTab: RightPanelTab
   onTabChange: (tab: RightPanelTab) => void
   onAssignCategory: (itemId: number, category: string) => void
+  itemActionPrompt: string
+  onItemActionPromptChange: (prompt: string) => void
 }
 
 export const RightPanel = ({
@@ -25,6 +27,8 @@ export const RightPanel = ({
   rightPanelTab,
   onTabChange,
   onAssignCategory,
+  itemActionPrompt,
+  onItemActionPromptChange,
 }: RightPanelProps) => (
   <aside className="w-full shrink-0 border-t border-slate-200 bg-white shadow-xl lg:w-[360px] lg:border-l lg:border-t-0">
     <div className="border-b border-slate-200 bg-slate-50/50 px-6 pt-6">
@@ -59,6 +63,7 @@ export const RightPanel = ({
           showBadge={selectedItem?.status === 'pending_category'}
         />
         <RightTab label="대화" id="chat" current={rightPanelTab} onClick={onTabChange} />
+        <RightTab label="설정" id="settings" current={rightPanelTab} onClick={onTabChange} />
       </div>
     </div>
 
@@ -133,11 +138,31 @@ export const RightPanel = ({
                   : '무엇을 도와드릴까요?'
               }
             />
+            {selectedItem ? (
+              <ChatBubble type="ai" text={`현재 항목 액션 프롬프트: ${itemActionPrompt}`} />
+            ) : null}
           </div>
         </div>
       ) : null}
 
-      {!selectedItem && rightPanelTab !== 'chat' ? (
+      {rightPanelTab === 'settings' ? (
+        <div className="space-y-4 p-6">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <h3 className="text-sm font-bold text-slate-800">항목 액션 프롬프트</h3>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">
+              선택한 항목에 대해 AI가 어떤 방식으로 답변할지 기본 프롬프트를 직접 설정할 수 있습니다.
+            </p>
+            <textarea
+              value={itemActionPrompt}
+              onChange={(event) => onItemActionPromptChange(event.target.value)}
+              placeholder="예: 지출 항목이면 카테고리 추천 + 절약 팁까지 포함해서 답해줘."
+              className="mt-3 min-h-28 w-full resize-y rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {!selectedItem && rightPanelTab !== 'chat' && rightPanelTab !== 'settings' ? (
         <div className="p-6">
           <StatePanel
             type="empty"

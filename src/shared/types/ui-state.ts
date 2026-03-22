@@ -1,6 +1,6 @@
 import type { TimelineFilter } from '@/entities/timeline/model/types'
 
-export type RightPanelTab = 'details' | 'ai' | 'chat'
+export type RightPanelTab = 'details' | 'ai' | 'chat' | 'settings'
 export type Density = 'comfortable' | 'compact'
 
 export interface UiQueryState {

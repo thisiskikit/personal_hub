@@ -35,6 +35,9 @@ const INBOX_STORAGE_KEY = 'inboxItems'
 const NOTIFICATION_STORAGE_KEY = 'notifications'
 const DENSITY_STORAGE_KEY = 'densityMode'
 const SELECTED_ITEM_STORAGE_KEY = 'selectedItemId'
+const ITEM_ACTION_PROMPT_STORAGE_KEY = 'itemActionPrompt'
+const DEFAULT_ITEM_ACTION_PROMPT =
+  '선택한 항목을 분석해서 다음 액션을 제안하고, 필요한 경우 자동화 규칙까지 추천해 줘.'
 
 const seedNotifications: NotificationItem[] = [
   {
@@ -107,6 +110,9 @@ export const AppShell = () => {
     readStorage(NOTIFICATION_STORAGE_KEY, seedNotifications),
   )
   const [toasts, setToasts] = useState<ToastItem[]>([])
+  const [itemActionPrompt, setItemActionPrompt] = useState(() =>
+    readStorage(ITEM_ACTION_PROMPT_STORAGE_KEY, DEFAULT_ITEM_ACTION_PROMPT),
+  )
 
   const activeMenu = getActiveMenu(location.pathname)
   const ui = useMemo(() => parseUiQueryState(searchParams), [searchParams])
@@ -174,6 +180,10 @@ export const AppShell = () => {
     if (!ui.item) return
     localStorage.setItem(SELECTED_ITEM_STORAGE_KEY, String(ui.item))
   }, [ui.item])
+
+  useEffect(() => {
+    localStorage.setItem(ITEM_ACTION_PROMPT_STORAGE_KEY, JSON.stringify(itemActionPrompt))
+  }, [itemActionPrompt])
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -424,6 +434,8 @@ export const AppShell = () => {
         )
       })
     },
+    itemActionPrompt,
+    setItemActionPrompt,
     onToggleRule: (ruleId: number, active: boolean) => {
       toggleRuleMutation.mutate({ ruleId, active })
     },
@@ -478,6 +490,8 @@ export const AppShell = () => {
           rightPanelTab={ui.tab}
           onTabChange={contextValue.selectRightPanelTab}
           onAssignCategory={contextValue.onAssignCategory}
+          itemActionPrompt={itemActionPrompt}
+          onItemActionPromptChange={setItemActionPrompt}
         />
       </div>
 

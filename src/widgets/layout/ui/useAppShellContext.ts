@@ -61,6 +61,8 @@ export interface AppShellContextValue {
   isLoading: boolean
   hasError: boolean
   onAssignCategory: (itemId: number, category: string) => void
+  itemActionPrompt: string
+  setItemActionPrompt: (prompt: string) => void
   onToggleRule: (ruleId: number, active: boolean) => void
   selectTimelineFilter: (filter: TimelineFilter) => void
   selectDensity: (density: Density) => void
