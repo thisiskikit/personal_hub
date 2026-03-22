@@ -1,15 +1,14 @@
 import type { DataProvider } from '@/shared/api/data-provider'
+import { apiDataProvider } from '@/shared/api/api-provider'
 import { mockDataProvider } from '@/shared/api/mock-provider'
 
-const dataProviderMode = import.meta.env.VITE_DATA_PROVIDER ?? 'mock'
+const dataProviderMode = import.meta.env.VITE_DATA_PROVIDER ?? 'api'
 
 const resolveProvider = (): DataProvider => {
-  if (dataProviderMode === 'api') {
-    console.warn('VITE_DATA_PROVIDER=api is not implemented yet. Falling back to mock.')
+  if (dataProviderMode === 'mock') {
     return mockDataProvider
   }
-
-  return mockDataProvider
+  return apiDataProvider
 }
 
 export const dataProvider = resolveProvider()
