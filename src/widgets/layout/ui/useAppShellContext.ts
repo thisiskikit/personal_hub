@@ -32,6 +32,22 @@ export interface NotificationItem {
   }
 }
 
+export type AssistantSaveMode = 'inbox' | 'event' | 'memo'
+
+export interface AssistantPendingAction {
+  id: string
+  title: string
+  typeCandidate: InboxItem['typeCandidate']
+  suggestedMode: AssistantSaveMode
+}
+
+export interface AssistantMessage {
+  id: string
+  role: 'user' | 'ai'
+  text: string
+  pendingAction?: AssistantPendingAction
+}
+
 export interface AppShellContextValue {
   activeMenu: ActiveMenu
   ui: UiQueryState
@@ -64,6 +80,9 @@ export interface AppShellContextValue {
   itemActionPrompt: string
   setItemActionPrompt: (prompt: string) => void
   onToggleRule: (ruleId: number, active: boolean) => void
+  assistantMessages: AssistantMessage[]
+  sendAssistantMessage: (message: string) => void
+  confirmAssistantSave: (actionId: string, mode: AssistantSaveMode) => void
   selectTimelineFilter: (filter: TimelineFilter) => void
   selectDensity: (density: Density) => void
   selectRightPanelTab: (tab: RightPanelTab) => void

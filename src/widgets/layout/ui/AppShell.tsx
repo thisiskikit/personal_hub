@@ -5,6 +5,7 @@ import type { AutomationRule } from '@/entities/automation/model/types'
 import type { BudgetItem, FinanceSummary } from '@/entities/finance/model/types'
 import type { TimelineFilter, TimelineItem, TimelineType } from '@/entities/timeline/model/types'
 import { QuickAddMenu } from '@/features/quick-add/ui/QuickAddMenu'
+import { FloatingAssistant } from '@/features/assistant/ui/FloatingAssistant'
 import { dataProvider, queryKeys } from '@/shared/api'
 import { serializeUiQueryState, parseUiQueryState } from '@/shared/lib/route-query'
 import { MENU_TO_ROUTE, ROUTE_TO_MENU } from '@/shared/types/navigation'
@@ -15,6 +16,9 @@ import { LeftSidebar } from '@/widgets/layout/ui/LeftSidebar'
 import { RightPanel } from '@/widgets/layout/ui/RightPanel'
 import type {
   AppShellContextValue,
+  AssistantMessage,
+  AssistantPendingAction,
+  AssistantSaveMode,
   InboxItem,
   InboxStatus,
   NotificationItem,
@@ -36,6 +40,7 @@ const NOTIFICATION_STORAGE_KEY = 'notifications'
 const DENSITY_STORAGE_KEY = 'densityMode'
 const SELECTED_ITEM_STORAGE_KEY = 'selectedItemId'
 const ITEM_ACTION_PROMPT_STORAGE_KEY = 'itemActionPrompt'
+const ASSISTANT_OPEN_STORAGE_KEY = 'assistantOpen'
 const DEFAULT_ITEM_ACTION_PROMPT =
   '선택한 항목을 분석해서 다음 액션을 제안하고, 필요한 경우 자동화 규칙까지 추천해 줘.'
 
@@ -96,6 +101,22 @@ const inferStatusFromDestination = (destination: TimelineType | 'dismissed'): In
   return 'saved'
 }
 
+const detectAssistantCandidate = (input: string): InboxItem['typeCandidate'] => {
+  const hasAmount = /(\d+[\d,]*(원|만원)?)/.test(input) || /(\d+[\d,]*)/.test(input)
+  const hasSchedule = /(내일|오후|오전|\d+시|\d{1,2}:\d{2})/.test(input)
+
+  if (hasAmount) return 'finance'
+  if (hasSchedule) return 'event'
+  if (/(할 일|todo|체크|완료)/i.test(input)) return 'task'
+  return 'memo'
+}
+
+const getSuggestedSaveMode = (typeCandidate: InboxItem['typeCandidate']): AssistantSaveMode => {
+  if (typeCandidate === 'event') return 'event'
+  if (typeCandidate === 'memo') return 'memo'
+  return 'inbox'
+}
+
 export const AppShell = () => {
   const location = useLocation()
   const navigate = useNavigate()
@@ -113,6 +134,16 @@ export const AppShell = () => {
   const [itemActionPrompt, setItemActionPrompt] = useState(() =>
     readStorage(ITEM_ACTION_PROMPT_STORAGE_KEY, DEFAULT_ITEM_ACTION_PROMPT),
   )
+  const [isAssistantOpen, setIsAssistantOpen] = useState(() =>
+    readStorage(ASSISTANT_OPEN_STORAGE_KEY, true),
+  )
+  const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>(() => [
+    {
+      id: `ai-${Date.now()}`,
+      role: 'ai' as const,
+      text: '원하는 작업을 말씀해 주세요. 저장 전에는 반드시 저장 방법을 확인해 드릴게요.',
+    },
+  ])
 
   const activeMenu = getActiveMenu(location.pathname)
   const ui = useMemo(() => parseUiQueryState(searchParams), [searchParams])
@@ -184,6 +215,10 @@ export const AppShell = () => {
   useEffect(() => {
     localStorage.setItem(ITEM_ACTION_PROMPT_STORAGE_KEY, JSON.stringify(itemActionPrompt))
   }, [itemActionPrompt])
+
+  useEffect(() => {
+    localStorage.setItem(ASSISTANT_OPEN_STORAGE_KEY, JSON.stringify(isAssistantOpen))
+  }, [isAssistantOpen])
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -338,6 +373,76 @@ export const AppShell = () => {
     [pushUndoToast],
   )
 
+  const sendAssistantMessage = useCallback((message: string) => {
+    const trimmed = message.trim()
+    if (!trimmed) return
+
+    const typeCandidate = detectAssistantCandidate(trimmed)
+    const suggestedMode = getSuggestedSaveMode(typeCandidate)
+    const pendingAction: AssistantPendingAction = {
+      id: `action-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      title: trimmed,
+      typeCandidate,
+      suggestedMode,
+    }
+
+    const saveModeLabel =
+      suggestedMode === 'event'
+        ? '바로 일정 저장'
+        : suggestedMode === 'memo'
+          ? '바로 메모 저장'
+          : '인박스 저장'
+
+    setAssistantMessages((current) => [
+      ...current,
+      { id: `user-${Date.now()}`, role: 'user', text: trimmed },
+      {
+        id: `ai-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        role: 'ai',
+        text: `어떻게 저장할까요? 추천은 ${saveModeLabel} 입니다. 원하시는 방식을 선택해 주세요.`,
+        pendingAction,
+      },
+    ])
+  }, [])
+
+  const confirmAssistantSave = useCallback(
+    (actionId: string, mode: AssistantSaveMode) => {
+      let actionToSave: AssistantPendingAction | undefined
+
+      setAssistantMessages((current) => {
+        actionToSave =
+          current.find((message) => message.pendingAction?.id === actionId)?.pendingAction
+        return current.map((message) =>
+          message.pendingAction?.id === actionId ? { ...message, pendingAction: undefined } : message,
+        )
+      })
+
+      const resolvedAction = actionToSave
+      if (!resolvedAction) return
+
+      const status: InboxStatus = mode === 'inbox' ? 'needs_review' : mode === 'event' ? 'scheduled' : 'saved'
+      const typeCandidate =
+        mode === 'event' ? 'event' : mode === 'memo' ? 'memo' : resolvedAction.typeCandidate
+
+      addInboxItem({
+        title: resolvedAction.title,
+        typeCandidate,
+        status,
+      })
+
+      const savedTargetLabel = mode === 'event' ? '일정' : mode === 'memo' ? '메모' : '인박스'
+      setAssistantMessages((current) => [
+        ...current,
+        {
+          id: `ai-saved-${Date.now()}`,
+          role: 'ai',
+          text: `좋아요. '${resolvedAction.title}' 항목을 ${savedTargetLabel}로 저장했습니다.`,
+        },
+      ])
+    },
+    [addInboxItem],
+  )
+
   const markNotificationsRead = useCallback(() => {
     const previous = [...notifications]
     setNotifications((current) => current.map((item) => ({ ...item, isRead: true })))
@@ -439,6 +544,9 @@ export const AppShell = () => {
     onToggleRule: (ruleId: number, active: boolean) => {
       toggleRuleMutation.mutate({ ruleId, active })
     },
+    assistantMessages,
+    sendAssistantMessage,
+    confirmAssistantSave,
     selectTimelineFilter: (filter: TimelineFilter) => setUi({ filter }),
     selectDensity: (density: Density) => setUi({ density }),
     selectRightPanelTab: (tab: RightPanelTab) => setUi({ tab }),
@@ -548,6 +656,14 @@ export const AppShell = () => {
           </div>
         ))}
       </div>
+
+      <FloatingAssistant
+        isOpen={isAssistantOpen}
+        onToggleOpen={() => setIsAssistantOpen((current) => !current)}
+        messages={assistantMessages}
+        onSendMessage={sendAssistantMessage}
+        onConfirmSave={confirmAssistantSave}
+      />
     </div>
   )
 }
