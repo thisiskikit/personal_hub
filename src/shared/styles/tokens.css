@@ -1,0 +1,53 @@
+:root {
+  --font-body: 'Manrope', 'Noto Sans KR', sans-serif;
+  --font-display: 'Space Grotesk', 'Noto Sans KR', sans-serif;
+
+  --surface-base: #f6f8fc;
+  --surface-panel: #ffffff;
+  --surface-muted: #f1f5f9;
+  --surface-accent: #e0e7ff;
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+
+  --radius-base: 0.75rem;
+  --shadow-soft: 0 10px 24px -16px rgba(15, 23, 42, 0.25);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  background:
+    radial-gradient(circle at 20% 0%, rgba(59, 130, 246, 0.08), transparent 38%),
+    radial-gradient(circle at 100% 0%, rgba(14, 116, 144, 0.08), transparent 28%),
+    var(--surface-base);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
