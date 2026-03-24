@@ -5,16 +5,21 @@ import type { AutomationRule } from '@/entities/automation/model/types'
 import type { BudgetItem, FinanceSummary } from '@/entities/finance/model/types'
 import type { TimelineFilter, TimelineItem, TimelineType } from '@/entities/timeline/model/types'
 import { QuickAddMenu } from '@/features/quick-add/ui/QuickAddMenu'
+import { FloatingAssistant } from '@/features/assistant/ui/FloatingAssistant'
 import { dataProvider, queryKeys } from '@/shared/api'
 import { serializeUiQueryState, parseUiQueryState } from '@/shared/lib/route-query'
 import { MENU_TO_ROUTE, ROUTE_TO_MENU } from '@/shared/types/navigation'
 import type { ActiveMenu } from '@/shared/types/navigation'
 import type { Density, RightPanelTab, UiQueryState } from '@/shared/types/ui-state'
+import type { AssistantSaveMode, InboxParseResponse } from '@/shared/types/ai'
 import { MainHeader } from '@/widgets/layout/ui/MainHeader'
 import { LeftSidebar } from '@/widgets/layout/ui/LeftSidebar'
 import { RightPanel } from '@/widgets/layout/ui/RightPanel'
 import type {
   AppShellContextValue,
+  AssistantMessage,
+  AssistantPendingAction,
+  InboxParsingRule,
   InboxItem,
   InboxStatus,
   NotificationItem,
@@ -35,9 +40,25 @@ const INBOX_STORAGE_KEY = 'inboxItems'
 const NOTIFICATION_STORAGE_KEY = 'notifications'
 const DENSITY_STORAGE_KEY = 'densityMode'
 const SELECTED_ITEM_STORAGE_KEY = 'selectedItemId'
-const ITEM_ACTION_PROMPT_STORAGE_KEY = 'itemActionPrompt'
-const DEFAULT_ITEM_ACTION_PROMPT =
-  '선택한 항목을 분석해서 다음 액션을 제안하고, 필요한 경우 자동화 규칙까지 추천해 줘.'
+const ASSISTANT_OPEN_STORAGE_KEY = 'assistantOpen'
+const INBOX_RULES_STORAGE_KEY = 'inboxParsingRules'
+
+const DEFAULT_INBOX_RULES: Omit<InboxParsingRule, 'id'>[] = [
+  { label: '일정 키워드', pattern: '내일|오전|오후|미팅|회의|\d+시', typeCandidate: 'event', recommendedSaveMode: 'event', priority: 100 },
+  { label: '지출 금액', pattern: '\\d+[\\d,]*(원|만원)', typeCandidate: 'finance', recommendedSaveMode: 'inbox', priority: 90 },
+  { label: '할 일 키워드', pattern: '할 일|todo|체크|완료', typeCandidate: 'task', recommendedSaveMode: 'inbox', priority: 80 },
+]
+
+const applyInboxRule = (input: string, rules: InboxParsingRule[]) => {
+  const sorted = [...rules].sort((a, b) => b.priority - a.priority)
+  return sorted.find((rule) => {
+    try {
+      return new RegExp(rule.pattern, 'i').test(input)
+    } catch {
+      return false
+    }
+  })
+}
 
 const seedNotifications: NotificationItem[] = [
   {
@@ -96,6 +117,33 @@ const inferStatusFromDestination = (destination: TimelineType | 'dismissed'): In
   return 'saved'
 }
 
+const buildLocalInboxFallback = (input: string, ruleMatch?: InboxParsingRule): InboxParseResponse => {
+  const trimmed = input.trim()
+  const isEvent = /(내일|오전|오후|\d+시|\d{1,2}:\d{2})/.test(trimmed)
+  const isFinance = /(\d+[\d,]*(원|만원)?)/.test(trimmed)
+  const primaryType = ruleMatch?.typeCandidate ?? (isEvent ? 'event' : isFinance ? 'finance' : 'memo')
+  const recommendedSaveMode =
+    ruleMatch?.recommendedSaveMode ?? (isEvent ? 'event' : primaryType === 'memo' ? 'memo' : 'inbox')
+  return {
+    mode: 'inbox_parse',
+    summary: '오프라인 규칙으로 입력을 분석했습니다.',
+    primary_type: primaryType,
+    secondary_types: [],
+    confidence: 0.55,
+    clarification_needed: false,
+    recommended_save_mode: recommendedSaveMode,
+    entities: {
+      title: trimmed,
+      datetime_text: isEvent ? trimmed : null,
+      amount_text: isFinance ? trimmed : null,
+      location: null,
+      people: [],
+      tags: [],
+    },
+    suggested_actions: ruleMatch ? [`규칙 적용: ${ruleMatch.label}`] : ['저장 방식 선택'],
+  }
+}
+
 export const AppShell = () => {
   const location = useLocation()
   const navigate = useNavigate()
@@ -110,9 +158,22 @@ export const AppShell = () => {
     readStorage(NOTIFICATION_STORAGE_KEY, seedNotifications),
   )
   const [toasts, setToasts] = useState<ToastItem[]>([])
-  const [itemActionPrompt, setItemActionPrompt] = useState(() =>
-    readStorage(ITEM_ACTION_PROMPT_STORAGE_KEY, DEFAULT_ITEM_ACTION_PROMPT),
+  const [isAssistantOpen, setIsAssistantOpen] = useState(() =>
+    readStorage(ASSISTANT_OPEN_STORAGE_KEY, true),
   )
+  const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>(() => [
+    {
+      id: `ai-${Date.now()}`,
+      role: 'ai' as const,
+      text: '원하는 작업을 말씀해 주세요. 저장 전에는 반드시 저장 방법을 확인해 드릴게요.',
+    },
+  ])
+  const [assistantDrafts, setAssistantDrafts] = useState<Record<string, InboxParseResponse>>({})
+  const [inboxParsingRules, setInboxParsingRules] = useState<InboxParsingRule[]>(() => {
+    const stored = readStorage<InboxParsingRule[] | null>(INBOX_RULES_STORAGE_KEY, null)
+    if (stored?.length) return stored
+    return DEFAULT_INBOX_RULES.map((rule) => ({ ...rule, id: `rule-${Math.random().toString(36).slice(2, 8)}` }))
+  })
 
   const activeMenu = getActiveMenu(location.pathname)
   const ui = useMemo(() => parseUiQueryState(searchParams), [searchParams])
@@ -141,6 +202,13 @@ export const AppShell = () => {
   const financeSummary = dashboardSummaryQuery.data ?? FALLBACK_SUMMARY
   const budgetItems = budgetQuery.data ?? FALLBACK_BUDGET
   const automationRules = automationRulesQuery.data ?? FALLBACK_AUTOMATION_RULES
+
+  const promptProfilesQuery = useQuery({
+    queryKey: queryKeys.promptProfiles,
+    queryFn: dataProvider.getPromptProfiles,
+  })
+
+  const promptProfiles = promptProfilesQuery.data ?? []
 
   const selectedItem = timelineItems.find((item) => item.id === ui.item) ?? timelineItems[0] ?? null
   const filteredItems = useMemo(
@@ -182,8 +250,12 @@ export const AppShell = () => {
   }, [ui.item])
 
   useEffect(() => {
-    localStorage.setItem(ITEM_ACTION_PROMPT_STORAGE_KEY, JSON.stringify(itemActionPrompt))
-  }, [itemActionPrompt])
+    localStorage.setItem(ASSISTANT_OPEN_STORAGE_KEY, JSON.stringify(isAssistantOpen))
+  }, [isAssistantOpen])
+
+  useEffect(() => {
+    localStorage.setItem(INBOX_RULES_STORAGE_KEY, JSON.stringify(inboxParsingRules))
+  }, [inboxParsingRules])
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -338,6 +410,164 @@ export const AppShell = () => {
     [pushUndoToast],
   )
 
+  const sendAssistantMessage = useCallback((message: string) => {
+    const parseResponseToPendingAction = (payload: InboxParseResponse): AssistantPendingAction => ({
+      id: `action-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      title: payload.entities.title || message.trim(),
+      typeCandidate: payload.primary_type,
+      suggestedMode: payload.recommended_save_mode,
+    })
+
+    const trimmed = message.trim()
+    if (!trimmed) return
+
+    setAssistantMessages((current) => [...current, { id: `user-${Date.now()}`, role: 'user', text: trimmed }])
+
+    void dataProvider
+      .inboxParse(trimmed)
+      .then((result) => {
+        const parsed = result.data
+        const ruleMatch = applyInboxRule(trimmed, inboxParsingRules)
+        const normalized = ruleMatch
+          ? {
+              ...parsed,
+              primary_type: ruleMatch.typeCandidate,
+              recommended_save_mode: ruleMatch.recommendedSaveMode,
+              summary: `${parsed.summary} (규칙 '${ruleMatch.label}' 적용)`,
+            }
+          : parsed
+        const pendingAction = parseResponseToPendingAction(normalized)
+        setAssistantDrafts((current) => ({ ...current, [pendingAction.id]: normalized }))
+
+        const saveModeLabel =
+          normalized.recommended_save_mode === 'event'
+            ? '바로 일정 저장'
+            : normalized.recommended_save_mode === 'memo'
+              ? '바로 메모 저장'
+              : '인박스 저장'
+
+        const clarifying = normalized.clarification_needed
+          ? '정보가 조금 부족해요. 먼저 인박스로 저장한 뒤 수정하는 것을 권장합니다.'
+          : '원하시는 저장 방식을 선택해 주세요.'
+
+        setAssistantMessages((current) => [
+          ...current,
+          {
+            id: `ai-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            role: 'ai',
+            text: `${normalized.summary} (신뢰도 ${Math.round(normalized.confidence * 100)}%)\n추천: ${saveModeLabel}\n${clarifying}`,
+            pendingAction,
+          },
+        ])
+      })
+      .catch(() => {
+        const ruleMatch = applyInboxRule(trimmed, inboxParsingRules)
+        const fallback = buildLocalInboxFallback(trimmed, ruleMatch)
+        const pendingAction = parseResponseToPendingAction(fallback)
+        setAssistantDrafts((current) => ({ ...current, [pendingAction.id]: fallback }))
+        setAssistantMessages((current) => [
+          ...current,
+          {
+            id: `ai-error-${Date.now()}`,
+            role: 'ai',
+            text: '서버 연결이 불안정해서 로컬 규칙으로 처리했어요. 저장 방식을 선택해 주세요.',
+            pendingAction,
+          },
+        ])
+      })
+  }, [inboxParsingRules])
+
+  const confirmAssistantSave = useCallback(
+    (actionId: string, mode: AssistantSaveMode) => {
+      let actionToSave: AssistantPendingAction | undefined
+
+      setAssistantMessages((current) => {
+        actionToSave =
+          current.find((message) => message.pendingAction?.id === actionId)?.pendingAction
+        return current.map((message) =>
+          message.pendingAction?.id === actionId ? { ...message, pendingAction: undefined } : message,
+        )
+      })
+
+      const resolvedAction = actionToSave
+      if (!resolvedAction) return
+
+      const status: InboxStatus = mode === 'inbox' ? 'needs_review' : mode === 'event' ? 'scheduled' : 'saved'
+      const draft = assistantDrafts[actionId]
+      const typeCandidate =
+        mode === 'event' ? 'event' : mode === 'memo' ? 'memo' : draft?.primary_type ?? resolvedAction.typeCandidate
+
+      addInboxItem({
+        title: resolvedAction.title,
+        typeCandidate,
+        status,
+      })
+
+      const savedTargetLabel = mode === 'event' ? '일정' : mode === 'memo' ? '메모' : '인박스'
+      setAssistantMessages((current) => [
+        ...current,
+        {
+          id: `ai-saved-${Date.now()}`,
+          role: 'ai',
+          text: `좋아요. '${resolvedAction.title}' 항목을 ${savedTargetLabel}로 저장했습니다.`,
+        },
+      ])
+      setAssistantDrafts((current) => {
+        const next = { ...current }
+        delete next[actionId]
+        return next
+      })
+    },
+    [addInboxItem, assistantDrafts],
+  )
+
+  const updatePromptProfile = useCallback(async (key: string, promptText: string) => {
+    const previous = queryClient.getQueryData(queryKeys.promptProfiles)
+    queryClient.setQueryData(queryKeys.promptProfiles, (current: typeof promptProfiles | undefined) =>
+      (current ?? []).map((profile) =>
+        profile.key === key
+          ? { ...profile, promptText, updatedAt: new Date().toISOString() }
+          : profile,
+      ),
+    )
+
+    try {
+      await dataProvider.updatePromptProfile(key, promptText)
+      pushUndoToast('프롬프트를 저장했습니다', () => undefined)
+    } catch {
+      queryClient.setQueryData(queryKeys.promptProfiles, previous)
+      pushUndoToast('프롬프트 저장 실패: API 서버 연결을 확인해 주세요', () => undefined)
+      throw new Error('prompt profile update failed')
+    }
+  }, [promptProfiles, pushUndoToast, queryClient])
+
+  const addInboxParsingRule = useCallback((rule: Omit<InboxParsingRule, 'id'>) => {
+    const nextRule: InboxParsingRule = { ...rule, id: `rule-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` }
+    setInboxParsingRules((current) => [nextRule, ...current])
+    pushUndoToast(`규칙 '${rule.label}'을 추가했습니다`, () => {
+      setInboxParsingRules((current) => current.filter((item) => item.id !== nextRule.id))
+    })
+  }, [pushUndoToast])
+
+  const updateInboxParsingRule = useCallback((ruleId: string, patch: Partial<Omit<InboxParsingRule, 'id'>>) => {
+    setInboxParsingRules((current) =>
+      current.map((rule) => (rule.id === ruleId ? { ...rule, ...patch } : rule)),
+    )
+  }, [])
+
+  const deleteInboxParsingRule = useCallback((ruleId: string) => {
+    setInboxParsingRules((current) => {
+      const target = current.find((rule) => rule.id === ruleId)
+      const next = current.filter((rule) => rule.id !== ruleId)
+      if (target) {
+        pushUndoToast(`규칙 '${target.label}'을 삭제했습니다`, () => {
+          setInboxParsingRules((rules) => [target, ...rules])
+        })
+      }
+      return next
+    })
+  }, [pushUndoToast])
+
   const markNotificationsRead = useCallback(() => {
     const previous = [...notifications]
     setNotifications((current) => current.map((item) => ({ ...item, isRead: true })))
@@ -372,8 +602,9 @@ export const AppShell = () => {
         setIsQuickAddOpen(true)
       }
       if (commandId === 'open-inbox') {
-        void navigate('/dashboard')
+        void navigate('/inbox')
       }
+      if (commandId === 'go-inbox') void navigate('/inbox')
       if (commandId === 'open-ai-tab') {
         setUi({ tab: 'ai' })
       }
@@ -434,11 +665,18 @@ export const AppShell = () => {
         )
       })
     },
-    itemActionPrompt,
-    setItemActionPrompt,
+    promptProfiles,
+    updatePromptProfile,
+    inboxParsingRules,
+    addInboxParsingRule,
+    updateInboxParsingRule,
+    deleteInboxParsingRule,
     onToggleRule: (ruleId: number, active: boolean) => {
       toggleRuleMutation.mutate({ ruleId, active })
     },
+    assistantMessages,
+    sendAssistantMessage,
+    confirmAssistantSave,
     selectTimelineFilter: (filter: TimelineFilter) => setUi({ filter }),
     selectDensity: (density: Density) => setUi({ density }),
     selectRightPanelTab: (tab: RightPanelTab) => setUi({ tab }),
@@ -447,6 +685,7 @@ export const AppShell = () => {
 
   const commandItems = [
     { id: 'go-dashboard', label: '오늘 대시보드로 이동' },
+    { id: 'go-inbox', label: '인박스로 이동' },
     { id: 'go-finance', label: '재무 장부로 이동' },
     { id: 'go-calendar', label: '통합 일정으로 이동' },
     { id: 'go-notes', label: '메모 및 지식으로 이동' },
@@ -490,8 +729,12 @@ export const AppShell = () => {
           rightPanelTab={ui.tab}
           onTabChange={contextValue.selectRightPanelTab}
           onAssignCategory={contextValue.onAssignCategory}
-          itemActionPrompt={itemActionPrompt}
-          onItemActionPromptChange={setItemActionPrompt}
+          promptProfiles={promptProfiles}
+          onPromptProfileChange={updatePromptProfile}
+          inboxParsingRules={inboxParsingRules}
+          onAddInboxParsingRule={addInboxParsingRule}
+          onUpdateInboxParsingRule={updateInboxParsingRule}
+          onDeleteInboxParsingRule={deleteInboxParsingRule}
         />
       </div>
 
@@ -548,6 +791,14 @@ export const AppShell = () => {
           </div>
         ))}
       </div>
+
+      <FloatingAssistant
+        isOpen={isAssistantOpen}
+        onToggleOpen={() => setIsAssistantOpen((current) => !current)}
+        messages={assistantMessages}
+        onSendMessage={sendAssistantMessage}
+        onConfirmSave={confirmAssistantSave}
+      />
     </div>
   )
 }

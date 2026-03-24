@@ -4,6 +4,7 @@ import type { TimelineFilter, TimelineItem, TimelineType } from '@/entities/time
 import { useOutletContext } from 'react-router-dom'
 import type { ActiveMenu } from '@/shared/types/navigation'
 import type { Density, RightPanelTab, UiQueryState } from '@/shared/types/ui-state'
+import type { AssistantSaveMode, PromptProfile } from '@/shared/types/ai'
 
 export type InboxStatus = 'draft' | 'needs_review' | 'scheduled' | 'saved' | 'dismissed'
 
@@ -30,6 +31,29 @@ export interface NotificationItem {
     tab?: RightPanelTab
     itemId?: number
   }
+}
+
+export interface AssistantPendingAction {
+  id: string
+  title: string
+  typeCandidate: InboxItem['typeCandidate']
+  suggestedMode: AssistantSaveMode
+}
+
+export interface AssistantMessage {
+  id: string
+  role: 'user' | 'ai'
+  text: string
+  pendingAction?: AssistantPendingAction
+}
+
+export interface InboxParsingRule {
+  id: string
+  label: string
+  pattern: string
+  typeCandidate: TimelineType
+  recommendedSaveMode: AssistantSaveMode
+  priority: number
 }
 
 export interface AppShellContextValue {
@@ -61,9 +85,16 @@ export interface AppShellContextValue {
   isLoading: boolean
   hasError: boolean
   onAssignCategory: (itemId: number, category: string) => void
-  itemActionPrompt: string
-  setItemActionPrompt: (prompt: string) => void
   onToggleRule: (ruleId: number, active: boolean) => void
+  promptProfiles: PromptProfile[]
+  updatePromptProfile: (key: string, promptText: string) => Promise<void>
+  inboxParsingRules: InboxParsingRule[]
+  addInboxParsingRule: (rule: Omit<InboxParsingRule, 'id'>) => void
+  updateInboxParsingRule: (ruleId: string, patch: Partial<Omit<InboxParsingRule, 'id'>>) => void
+  deleteInboxParsingRule: (ruleId: string) => void
+  assistantMessages: AssistantMessage[]
+  sendAssistantMessage: (message: string) => void
+  confirmAssistantSave: (actionId: string, mode: AssistantSaveMode) => void
   selectTimelineFilter: (filter: TimelineFilter) => void
   selectDensity: (density: Density) => void
   selectRightPanelTab: (tab: RightPanelTab) => void
