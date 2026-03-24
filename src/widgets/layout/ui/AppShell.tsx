@@ -522,20 +522,32 @@ export const AppShell = () => {
   )
 
   const updatePromptProfile = useCallback(async (key: string, promptText: string) => {
+    const previous = queryClient.getQueryData(queryKeys.promptProfiles)
+    queryClient.setQueryData(queryKeys.promptProfiles, (current: typeof promptProfiles | undefined) =>
+      (current ?? []).map((profile) =>
+        profile.key === key
+          ? { ...profile, promptText, updatedAt: new Date().toISOString() }
+          : profile,
+      ),
+    )
+
     try {
       await dataProvider.updatePromptProfile(key, promptText)
-      void queryClient.invalidateQueries({ queryKey: queryKeys.promptProfiles })
       pushUndoToast('프롬프트를 저장했습니다', () => undefined)
     } catch {
+      queryClient.setQueryData(queryKeys.promptProfiles, previous)
       pushUndoToast('프롬프트 저장 실패: API 서버 연결을 확인해 주세요', () => undefined)
       throw new Error('prompt profile update failed')
     }
-  }, [pushUndoToast, queryClient])
+  }, [promptProfiles, pushUndoToast, queryClient])
 
   const addInboxParsingRule = useCallback((rule: Omit<InboxParsingRule, 'id'>) => {
     const nextRule: InboxParsingRule = { ...rule, id: `rule-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` }
     setInboxParsingRules((current) => [nextRule, ...current])
-  }, [])
+    pushUndoToast(`규칙 '${rule.label}'을 추가했습니다`, () => {
+      setInboxParsingRules((current) => current.filter((item) => item.id !== nextRule.id))
+    })
+  }, [pushUndoToast])
 
   const updateInboxParsingRule = useCallback((ruleId: string, patch: Partial<Omit<InboxParsingRule, 'id'>>) => {
     setInboxParsingRules((current) =>
@@ -544,8 +556,17 @@ export const AppShell = () => {
   }, [])
 
   const deleteInboxParsingRule = useCallback((ruleId: string) => {
-    setInboxParsingRules((current) => current.filter((rule) => rule.id !== ruleId))
-  }, [])
+    setInboxParsingRules((current) => {
+      const target = current.find((rule) => rule.id === ruleId)
+      const next = current.filter((rule) => rule.id !== ruleId)
+      if (target) {
+        pushUndoToast(`규칙 '${target.label}'을 삭제했습니다`, () => {
+          setInboxParsingRules((rules) => [target, ...rules])
+        })
+      }
+      return next
+    })
+  }, [pushUndoToast])
 
   const markNotificationsRead = useCallback(() => {
     const previous = [...notifications]

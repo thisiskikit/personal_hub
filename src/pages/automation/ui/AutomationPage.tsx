@@ -47,6 +47,22 @@ export const AutomationPage = () => {
       })
     },
     onSuccess: async () => {
+      if (draft) {
+        queryClient.setQueryData(queryKeys.automationRules, (current: typeof automationRules | undefined) => {
+          const nextRule = {
+            id: Date.now(),
+            trigger: draft.trigger_text,
+            conditionText: draft.condition_text,
+            action: draft.action_text,
+            category: draft.category,
+            status: draft.approval_required ? 'draft' : 'approved',
+            approvalRequired: draft.approval_required,
+            createdBy: 'ai',
+            active: draft.approval_required ? false : draft.default_active,
+          }
+          return [nextRule, ...(current ?? [])]
+        })
+      }
       setDraft(null)
       setPrompt('')
       await queryClient.invalidateQueries({ queryKey: queryKeys.automationRules })
