@@ -1,6 +1,14 @@
 import type { AutomationRule } from '@/entities/automation/model/types'
 import type { TimelineItem } from '@/entities/timeline/model/types'
 import type { DataProvider, TimelineParams } from '@/shared/api/data-provider'
+import type {
+  AiEnvelope,
+  DashboardBriefingResponse,
+  InboxParseResponse,
+  ItemAnalysisResponse,
+  PromptProfile,
+  RuleDraftResponse,
+} from '@/shared/types/ai'
 
 const BASE = '/api'
 
@@ -30,6 +38,12 @@ export const apiDataProvider: DataProvider = {
   getAutomationRules() {
     return apiFetch('/automation-rules')
   },
+  createAutomationRule(payload): Promise<AutomationRule> {
+    return apiFetch('/automation-rules', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
   updateTimelineCategory(itemId: number, category: string): Promise<TimelineItem | null> {
     return apiFetch(`/timeline/${itemId}/category`, {
       method: 'PATCH',
@@ -41,5 +55,36 @@ export const apiDataProvider: DataProvider = {
       method: 'PATCH',
       body: JSON.stringify({ active }),
     })
+  },
+  getPromptProfiles(): Promise<PromptProfile[]> {
+    return apiFetch('/prompt-profiles')
+  },
+  updatePromptProfile(key: string, promptText: string): Promise<PromptProfile> {
+    return apiFetch(`/prompt-profiles/${key}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ promptText }),
+    })
+  },
+  inboxParse(input: string, model?: string): Promise<AiEnvelope<InboxParseResponse>> {
+    return apiFetch('/ai/inbox-parse', {
+      method: 'POST',
+      body: JSON.stringify({ input, model }),
+    })
+  },
+  analyzeItem(itemId: number, model?: string): Promise<AiEnvelope<ItemAnalysisResponse>> {
+    return apiFetch('/ai/analyze-item', {
+      method: 'POST',
+      body: JSON.stringify({ itemId, model }),
+    })
+  },
+  draftRule(input: string, model?: string): Promise<AiEnvelope<RuleDraftResponse>> {
+    return apiFetch('/ai/rule-draft', {
+      method: 'POST',
+      body: JSON.stringify({ input, model }),
+    })
+  },
+  getDashboardBriefing(model?: string): Promise<AiEnvelope<DashboardBriefingResponse>> {
+    const qs = model ? `?model=${encodeURIComponent(model)}` : ''
+    return apiFetch(`/ai/dashboard-briefing${qs}`)
   },
 }

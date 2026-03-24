@@ -1,7 +1,8 @@
-export type ActiveMenu = 'dashboard' | 'finance' | 'calendar' | 'notes' | 'automation'
+export type ActiveMenu = 'dashboard' | 'inbox' | 'finance' | 'calendar' | 'notes' | 'automation'
 
 export const ROUTE_TO_MENU: Record<string, ActiveMenu> = {
   '/dashboard': 'dashboard',
+  '/inbox': 'inbox',
   '/finance': 'finance',
   '/calendar': 'calendar',
   '/notes': 'notes',
@@ -10,6 +11,7 @@ export const ROUTE_TO_MENU: Record<string, ActiveMenu> = {
 
 export const MENU_TO_ROUTE: Record<ActiveMenu, string> = {
   dashboard: '/dashboard',
+  inbox: '/inbox',
   finance: '/finance',
   calendar: '/calendar',
   notes: '/notes',
@@ -18,6 +20,7 @@ export const MENU_TO_ROUTE: Record<ActiveMenu, string> = {
 
 export const MENU_TITLE: Record<ActiveMenu, string> = {
   dashboard: '오늘 대시보드',
+  inbox: '인박스',
   finance: '재무 장부',
   calendar: '통합 일정',
   notes: '메모 및 지식',
