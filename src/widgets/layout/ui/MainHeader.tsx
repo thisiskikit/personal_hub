@@ -18,7 +18,7 @@ interface MainHeaderProps {
   onOpenNotification: (notificationId: number) => void
 }
 
-const mobileMenuOrder: ActiveMenu[] = ['dashboard', 'finance', 'calendar', 'notes', 'automation']
+const mobileMenuOrder: ActiveMenu[] = ['dashboard', 'inbox', 'finance', 'calendar', 'notes', 'automation']
 
 const groupLabel: Record<NotificationGroup, string> = {
   processing: '처리 필요',

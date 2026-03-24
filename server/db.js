@@ -71,6 +71,50 @@ export async function initDb() {
       )
     `)
 
+    const ensureColumn = async (table, column, definition) => {
+      const { rows } = await client.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`,
+        [table, column],
+      )
+      if (rows.length === 0) {
+        await client.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
+      }
+    }
+
+    await ensureColumn('automation_rules', 'condition_text', 'TEXT')
+    await ensureColumn('automation_rules', 'category', "VARCHAR(80) NOT NULL DEFAULT '운영'")
+    await ensureColumn('automation_rules', 'status', "VARCHAR(20) NOT NULL DEFAULT 'live'")
+    await ensureColumn('automation_rules', 'approval_required', 'BOOLEAN NOT NULL DEFAULT true')
+    await ensureColumn('automation_rules', 'created_by', "VARCHAR(40) NOT NULL DEFAULT 'ai'")
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS prompt_profiles (
+        id SERIAL PRIMARY KEY,
+        key VARCHAR(120) UNIQUE NOT NULL,
+        label VARCHAR(120) NOT NULL,
+        prompt_text TEXT NOT NULL,
+        is_system BOOLEAN NOT NULL DEFAULT false,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `)
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ai_runs (
+        id SERIAL PRIMARY KEY,
+        mode VARCHAR(60) NOT NULL,
+        source_type VARCHAR(60),
+        source_id VARCHAR(80),
+        user_input TEXT,
+        prompt_payload_json JSONB,
+        model_name VARCHAR(120),
+        response_json JSONB,
+        confidence NUMERIC(5,2),
+        approval_required BOOLEAN,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `)
+
     const { rows: summaryRows } = await client.query('SELECT COUNT(*) FROM finance_summary')
     if (parseInt(summaryRows[0].count) === 0) {
       await client.query(`
@@ -124,11 +168,23 @@ export async function initDb() {
     const { rows: autoRows } = await client.query('SELECT COUNT(*) FROM automation_rules')
     if (parseInt(autoRows[0].count) === 0) {
       await client.query(`
-        INSERT INTO automation_rules (trigger_text, action_text, active) VALUES
-        ('결제 내역 ''스타벅스'' 포함', '''회의비'' 태그 추천 및 일정 연동 대기', true),
-        ('매월 25일 오전 9시', '급여 이체 리마인드 및 잔고 브리핑 생성', true),
-        ('새 메모에 ''아이디어'' 태그 추가 시', '노션 ''아이디어 백로그'' DB로 자동 복사', false),
-        ('예산 소진율 90% 초과 시', '지출 알림 강도 높임 (Red Status)', true)
+        INSERT INTO automation_rules (trigger_text, condition_text, action_text, category, status, approval_required, created_by, active) VALUES
+        ('결제 내역 ''스타벅스'' 포함', '거래 제목에 스타벅스 키워드가 포함', '''회의비'' 태그 추천 및 일정 연동 대기', '재무', 'live', true, 'ai', true),
+        ('매월 25일 오전 9시', '매월 25일 09:00 스케줄 트리거', '급여 이체 리마인드 및 잔고 브리핑 생성', '운영', 'live', true, 'ai', true),
+        ('새 메모에 ''아이디어'' 태그 추가 시', '메모 태그에 아이디어 포함', '노션 ''아이디어 백로그'' DB로 자동 복사', '지식관리', 'draft', true, 'ai', false),
+        ('예산 소진율 90% 초과 시', '카테고리별 예산 소진율이 90% 초과', '지출 알림 강도 높임 (Red Status)', '재무', 'live', true, 'ai', true)
+      `)
+    }
+
+    const { rows: promptRows } = await client.query('SELECT COUNT(*) FROM prompt_profiles')
+    if (parseInt(promptRows[0].count) === 0) {
+      await client.query(`
+        INSERT INTO prompt_profiles (key, label, prompt_text, is_system) VALUES
+        ('global_system_prompt', '전역 시스템 프롬프트', '당신은 운영 허브의 AI 운영 비서다. 답변은 한국어로 간결하게 작성하고 JSON 계약을 반드시 준수한다. 위험 가능성이 있는 작업은 approval_required=true로 표시한다.', true),
+        ('inbox_parse_prompt', '인박스 파싱 프롬프트', '사용자 자연어를 일정/거래/메모/할 일 후보로 분류하고 핵심 엔티티를 추출한다. 불확실하면 clarification_needed=true로 설정한다.', false),
+        ('item_analysis_prompt', '항목 분석 프롬프트', '선택된 항목의 의미를 운영 관점에서 해석하고 실행 가능한 다음 액션을 제시한다. 분류 변경/자동화 생성은 승인 필요 여부를 평가한다.', false),
+        ('automation_rule_prompt', '자동화 규칙 프롬프트', '자연어 요청으로부터 IF/조건/THEN 규칙 초안을 생성한다. 리스크가 있으면 approval_required=true와 risk_level=high를 반환한다.', false),
+        ('dashboard_briefing_prompt', '대시보드 브리핑 프롬프트', '오늘의 운영 상태를 1줄 헤드라인과 2~4개 불릿으로 요약한다. 실행 우선순위를 priority_score로 제시한다.', false)
       `)
     }
 
