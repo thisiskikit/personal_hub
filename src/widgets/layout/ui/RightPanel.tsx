@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Bot,
@@ -43,6 +43,8 @@ export const RightPanel = ({
   onUpdateInboxParsingRule,
   onDeleteInboxParsingRule,
 }: RightPanelProps) => {
+  const [ruleTestInput, setRuleTestInput] = useState('')
+
   const itemAnalysisQuery = useQuery({
     queryKey: queryKeys.aiItemAnalysis(selectedItem?.id ?? null),
     queryFn: () => dataProvider.analyzeItem(selectedItem!.id),
@@ -63,6 +65,19 @@ export const RightPanel = ({
       }
     : null
   const itemAnalysis = itemAnalysisQuery.data?.data ?? fallbackAnalysis
+  const matchedRule = useMemo(() => {
+    if (!ruleTestInput.trim()) return null
+    const sorted = [...inboxParsingRules].sort((a, b) => b.priority - a.priority)
+    return (
+      sorted.find((rule) => {
+        try {
+          return new RegExp(rule.pattern, 'i').test(ruleTestInput)
+        } catch {
+          return false
+        }
+      }) ?? null
+    )
+  }, [inboxParsingRules, ruleTestInput])
 
   return (
     <aside className="w-full shrink-0 border-t border-slate-200 bg-white shadow-xl lg:w-[360px] lg:border-l lg:border-t-0">
@@ -244,6 +259,23 @@ export const RightPanel = ({
               >
                 규칙 추가
               </button>
+
+              <div className="mt-3 rounded-md border border-dashed border-slate-300 bg-slate-50 p-2">
+                <p className="text-[11px] font-semibold text-slate-600">규칙 테스트</p>
+                <input
+                  value={ruleTestInput}
+                  onChange={(event) => setRuleTestInput(event.target.value)}
+                  placeholder="예: 내일 3시 치과 예약"
+                  className="mt-1 w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {ruleTestInput.trim()
+                    ? matchedRule
+                      ? `매칭 규칙: ${matchedRule.label} → ${matchedRule.typeCandidate}/${matchedRule.recommendedSaveMode}`
+                      : '매칭된 규칙이 없습니다.'
+                    : '문장을 입력하면 어떤 규칙이 적용되는지 보여줍니다.'}
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -295,6 +327,9 @@ interface InboxRuleEditorProps {
 
 const InboxRuleEditor = ({ rule, onChange, onDelete }: InboxRuleEditorProps) => (
   <div className="rounded-lg border border-slate-200 bg-white p-2">
+    <p className="mb-1 text-[11px] text-slate-500">
+      {isValidRegex(rule.pattern) ? '유효한 규칙 패턴' : '패턴 오류: 정규식 문법을 확인하세요'}
+    </p>
     <input
       value={rule.label}
       onChange={(event) => onChange(rule.id, { label: event.target.value })}
@@ -360,6 +395,7 @@ interface PromptProfileEditorProps {
 const PromptProfileEditor = ({ profile, onSave }: PromptProfileEditorProps) => {
   const [value, setValue] = useState(profile.promptText)
   const [isSaving, setIsSaving] = useState(false)
+  const [savedAt, setSavedAt] = useState<string | null>(null)
 
   useEffect(() => {
     setValue(profile.promptText)
@@ -369,6 +405,7 @@ const PromptProfileEditor = ({ profile, onSave }: PromptProfileEditorProps) => {
     setIsSaving(true)
     try {
       await onSave(profile.key, value)
+      setSavedAt(new Date().toLocaleTimeString('ko-KR'))
     } finally {
       setIsSaving(false)
     }
@@ -383,6 +420,9 @@ const PromptProfileEditor = ({ profile, onSave }: PromptProfileEditorProps) => {
         className="mt-2 min-h-24 w-full resize-y rounded-lg border border-slate-200 bg-white p-2 text-xs outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500"
       />
       <div className="mt-2 flex justify-end">
+        <span className="mr-2 self-center text-[11px] text-slate-500">
+          {isSaving ? '저장 중...' : savedAt ? `${savedAt} 저장됨` : '미저장'}
+        </span>
         <button
           type="button"
           onClick={handleSave}
@@ -394,4 +434,13 @@ const PromptProfileEditor = ({ profile, onSave }: PromptProfileEditorProps) => {
       </div>
     </div>
   )
+}
+
+const isValidRegex = (pattern: string) => {
+  try {
+    void new RegExp(pattern)
+    return true
+  } catch {
+    return false
+  }
 }
