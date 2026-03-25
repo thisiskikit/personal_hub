@@ -53,6 +53,19 @@ export const AutomationRuleList = ({ rules, onToggle }: AutomationRuleListProps)
                 {rule.action}
               </span>
             </div>
+            {rule.status ? (
+              <div className="mt-2 flex items-center gap-2 text-[11px]">
+                <span className="rounded bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-600">
+                  {rule.status.toUpperCase()}
+                </span>
+                {rule.approvalRequired ? (
+                  <span className="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-700">
+                    승인 필요
+                  </span>
+                ) : null}
+                {rule.category ? <span className="text-slate-500">{rule.category}</span> : null}
+              </div>
+            ) : null}
           </div>
         </div>
 
