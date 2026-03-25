@@ -1,6 +1,7 @@
 import {
   Calendar as CalendarIcon,
   FileText,
+  Inbox,
   LayoutDashboard,
   Settings,
   Wallet,
@@ -31,6 +32,14 @@ export const LeftSidebar = ({ activeMenu, pendingCount }: LeftSidebarProps) => (
         icon={<LayoutDashboard size={18} />}
         label="오늘 대시보드"
         activeMenu={activeMenu}
+      />
+      <NavItem
+        id="inbox"
+        href={MENU_TO_ROUTE.inbox}
+        icon={<Inbox size={18} />}
+        label="인박스"
+        activeMenu={activeMenu}
+        badge={pendingCount}
       />
       <NavItem
         id="finance"
